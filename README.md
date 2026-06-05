@@ -137,6 +137,88 @@ npm.cmd run dev
 http://localhost:3000
 ```
 
+## 重启本地服务
+
+如果 `http://localhost:3000` 出现 500、页面打不开，或你在新窗口中需要重新启动服务，可以按下面步骤操作。
+
+### 1. 查看 3000 端口是否仍被占用
+
+```powershell
+netstat -ano | Select-String ':3000'
+```
+
+如果看到 `LISTENING`，记录最后一列 PID，例如：
+
+```text
+TCP  127.0.0.1:3000  0.0.0.0:0  LISTENING  57400
+```
+
+### 2. 停止旧服务
+
+把上一步看到的 PID 替换到命令里：
+
+```powershell
+Stop-Process -Id 57400 -Force
+```
+
+如果有多个同一时间启动的 Node/Next 进程，也可以一起停止：
+
+```powershell
+Stop-Process -Id 57400,102576 -Force
+```
+
+停止后再次确认没有 `LISTENING`：
+
+```powershell
+netstat -ano | Select-String ':3000'
+```
+
+只剩 `TIME_WAIT` 是正常的，表示端口连接正在释放；没有 `LISTENING` 就说明服务已停止。
+
+### 3. 可选：清理 Next 构建缓存
+
+如果之前遇到过 `500 Internal Server Error` 或构建缓存异常，可以清理 `.next`：
+
+```powershell
+$target = Resolve-Path '.next' -ErrorAction SilentlyContinue
+if ($target -and $target.Path.StartsWith((Resolve-Path '.').Path)) {
+  Remove-Item -LiteralPath $target.Path -Recurse -Force
+}
+```
+
+### 4. 重新启动服务
+
+推荐直接运行：
+
+```bash
+npm.cmd run dev
+```
+
+如果需要后台启动，可以使用 Node 直接启动 Next：
+
+```powershell
+Start-Process -FilePath 'C:\Program Files\nodejs\node.exe' `
+  -ArgumentList @('node_modules\next\dist\bin\next','dev','--hostname','127.0.0.1','--port','3000') `
+  -WorkingDirectory 'C:\Users\35078\.codex\worktrees\46d4\ScriptForge' `
+  -WindowStyle Hidden
+```
+
+### 5. 验证服务是否恢复
+
+```powershell
+try {
+  (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000).StatusCode
+} catch {
+  $_.Exception.Message
+}
+```
+
+返回 `200` 表示服务已恢复。然后打开：
+
+```text
+http://localhost:3000
+```
+
 ## 验证命令
 
 ```bash
