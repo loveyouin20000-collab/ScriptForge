@@ -91,6 +91,7 @@ export type ValidationIssue = {
 };
 
 export type ProviderConfig = {
+  vendor?: "openai" | "deepseek" | "tongyi" | "custom";
   baseUrl?: string;
   apiKey?: string;
   model?: string;

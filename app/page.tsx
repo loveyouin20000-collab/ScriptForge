@@ -80,6 +80,31 @@ scenes:
       - type: action
         content: 雨水拍打着玻璃窗。`;
 
+const providerPresets = {
+  openai: {
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    models: ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"]
+  },
+  deepseek: {
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    models: ["deepseek-chat", "deepseek-reasoner"]
+  },
+  tongyi: {
+    label: "通义千问",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    models: ["qwen-plus", "qwen-turbo", "qwen-max"]
+  },
+  custom: {
+    label: "自定义兼容接口",
+    baseUrl: "",
+    models: []
+  }
+} as const;
+
+type ProviderVendor = keyof typeof providerPresets;
+
 function downloadText(filename: string, content: string, type = "text/plain;charset=utf-8") {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -112,6 +137,7 @@ export default function Home() {
   const [author, setAuthor] = useState("原作者");
   const [text, setText] = useState(sampleText);
   const [provider, setProvider] = useState<ProviderConfig>({
+    vendor: "openai",
     baseUrl: "https://api.openai.com/v1",
     model: ""
   });
@@ -131,6 +157,20 @@ export default function Home() {
     if (text.trim()) return 24;
     return 8;
   }, [chapters.length, result, text]);
+
+  const selectedVendor = (provider.vendor ?? "openai") as ProviderVendor;
+  const selectedPreset = providerPresets[selectedVendor];
+  const usesMock = !provider.apiKey || !provider.model;
+
+  function changeVendor(vendor: ProviderVendor) {
+    const preset = providerPresets[vendor];
+    setProvider({
+      ...provider,
+      vendor,
+      baseUrl: vendor === "custom" ? provider.baseUrl ?? "" : preset.baseUrl,
+      model: vendor === "custom" ? provider.model ?? "" : preset.models[0] ?? ""
+    });
+  }
 
   function parseChapters() {
     const parsed = splitChapters(text);
@@ -301,19 +341,43 @@ export default function Home() {
                 <input value={author} onChange={(event) => setAuthor(event.target.value)} />
               </label>
               <label>
-                OpenAI-compatible Base URL
-                <input
-                  value={provider.baseUrl ?? ""}
-                  onChange={(event) => setProvider({ ...provider, baseUrl: event.target.value })}
-                />
+                AI 服务商
+                <select value={selectedVendor} onChange={(event) => changeVendor(event.target.value as ProviderVendor)}>
+                  {Object.entries(providerPresets).map(([value, preset]) => (
+                    <option key={value} value={value}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
               </label>
+              {selectedVendor === "custom" ? (
+                <label>
+                  兼容接口地址
+                  <input
+                    placeholder="如 https://api.example.com/v1"
+                    value={provider.baseUrl ?? ""}
+                    onChange={(event) => setProvider({ ...provider, baseUrl: event.target.value })}
+                  />
+                </label>
+              ) : (
+                <div className="providerInfo">
+                  <span>{selectedPreset.label} 服务地址</span>
+                  <code>{selectedPreset.baseUrl}</code>
+                </div>
+              )}
               <label>
                 模型
                 <input
-                  placeholder="留空则使用本地 mock"
+                  list="model-options"
+                  placeholder={selectedPreset.models[0] ? `如 ${selectedPreset.models[0]}` : "填写兼容接口支持的模型"}
                   value={provider.model ?? ""}
                   onChange={(event) => setProvider({ ...provider, model: event.target.value })}
                 />
+                <datalist id="model-options">
+                  {selectedPreset.models.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
               </label>
               <label>
                 API Key
@@ -324,6 +388,11 @@ export default function Home() {
                   onChange={(event) => setProvider({ ...provider, apiKey: event.target.value })}
                 />
               </label>
+              <p className="fieldHint">
+                {usesMock
+                  ? "模型或 API Key 留空时使用本地 mock，不会调用外部 LLM。"
+                  : `将调用 ${selectedPreset.label} 的 ${provider.model} 模型。`}
+              </p>
               <div className="buttonRow">
                 <label className="iconButton fileButton" title="上传 txt 或 md 文件">
                   <Upload size={18} />
