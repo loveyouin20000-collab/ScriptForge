@@ -246,7 +246,7 @@ function PricingPage() {
     <div className="pricingPage">
       <section className="pricingHero">
         <div>
-          <p className="eyebrow">Pricing</p>
+          <p className="eyebrow">会员服务</p>
           <h2>按生成次数付费，先验证再扩展</h2>
           <p>
             ScriptForge 的计费围绕真实 AI 生成消耗设计。免费版用于验证流程，Pro 版面向持续改编和团队生产，
@@ -498,7 +498,7 @@ export default function Home() {
               ["chapters", "章节解析"],
               ["result", "改编结果"],
               ["schema", "Schema 文档"],
-              ["pricing", "Pricing"]
+              ["pricing", "会员服务"]
             ].map(([id, label]) => (
               <button
                 key={id}
