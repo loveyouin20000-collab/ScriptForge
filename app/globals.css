@@ -574,10 +574,237 @@ pre {
   background: #fff4f1;
 }
 
+.pricingPage {
+  display: grid;
+  gap: 18px;
+}
+
+.pricingHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 18px;
+  align-items: stretch;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdfa;
+  box-shadow: var(--shadow);
+}
+
+.pricingHero h2 {
+  max-width: 760px;
+  margin-bottom: 12px;
+  font-size: clamp(28px, 4vw, 44px);
+  letter-spacing: 0;
+}
+
+.pricingHero p {
+  max-width: 760px;
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.pricingMetric {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-height: 180px;
+  padding: 22px;
+  border: 1px solid #bdd7ce;
+  border-radius: 8px;
+  background: #eef8f4;
+}
+
+.pricingMetric span,
+.pricingNote,
+.planKicker {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pricingMetric strong {
+  color: var(--accent);
+  font-size: 30px;
+}
+
+.pricingMetric p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.planGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.planCard {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 420px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.featuredPlan {
+  border-color: #9fc8bd;
+  background: #f0faf6;
+}
+
+.planIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--accent);
+}
+
+.planCard h3 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.planPrice {
+  font-size: 38px;
+  font-weight: 800;
+}
+
+.planCopy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.planCard ul {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.planCard li {
+  position: relative;
+  padding-left: 20px;
+  line-height: 1.5;
+}
+
+.planCard li::before {
+  position: absolute;
+  left: 0;
+  top: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  content: "";
+}
+
+.usagePricing,
+.comparisonPanel {
+  padding: 22px;
+}
+
+.packGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.packCard {
+  display: grid;
+  gap: 8px;
+  min-height: 150px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.packCard span {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.packCard strong {
+  font-size: 28px;
+}
+
+.packCard p,
+.packCard small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.comparisonTable {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 1fr) minmax(140px, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.tableHead,
+.tableRow span {
+  min-height: 48px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.45;
+}
+
+.tableHead {
+  background: #f7f3ec;
+  font-weight: 800;
+}
+
+.tableRow {
+  display: contents;
+}
+
+.tableRow:last-child span {
+  border-bottom: 0;
+}
+
+.pricingFaq {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.pricingFaq article {
+  min-height: 170px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdfa;
+}
+
+.pricingFaq p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 @media (max-width: 1040px) {
   .shell,
   .inputGrid,
   .providerGrid,
+  .pricingHero,
+  .planGrid,
+  .packGrid,
+  .pricingFaq,
   .chapterLayout,
   .resultLayout,
   .schemaLayout {
