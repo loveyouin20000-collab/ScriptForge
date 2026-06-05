@@ -4,10 +4,14 @@ import {
   AlertCircle,
   CheckCircle2,
   Clipboard,
+  CreditCard,
   Download,
   FileText,
+  Gauge,
   Play,
   RefreshCw,
+  ShieldCheck,
+  Sparkles,
   Upload,
   Wand2
 } from "lucide-react";
@@ -80,6 +84,31 @@ scenes:
       - type: action
         content: 雨水拍打着玻璃窗。`;
 
+const providerPresets = {
+  openai: {
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    models: ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"]
+  },
+  deepseek: {
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    models: ["deepseek-chat", "deepseek-reasoner"]
+  },
+  tongyi: {
+    label: "通义千问",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    models: ["qwen-plus", "qwen-turbo", "qwen-max"]
+  },
+  custom: {
+    label: "自定义兼容接口",
+    baseUrl: "",
+    models: []
+  }
+} as const;
+
+type ProviderVendor = keyof typeof providerPresets;
+
 function downloadText(filename: string, content: string, type = "text/plain;charset=utf-8") {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -106,12 +135,229 @@ function IssueList({ issues }: { issues: ValidationIssue[] }) {
   );
 }
 
+function ProviderModule({
+  provider,
+  onChange
+}: {
+  provider: ProviderConfig;
+  onChange: (provider: ProviderConfig) => void;
+}) {
+  const selectedVendor = (provider.vendor ?? "openai") as ProviderVendor;
+  const selectedPreset = providerPresets[selectedVendor];
+  const usesMock = !provider.apiKey || !provider.model;
+
+  function changeVendor(vendor: ProviderVendor) {
+    const preset = providerPresets[vendor];
+    onChange({
+      ...provider,
+      vendor,
+      baseUrl: vendor === "custom" ? "" : preset.baseUrl,
+      model: vendor === "custom" ? "" : preset.models[0] ?? ""
+    });
+  }
+
+  return (
+    <section className="providerModule">
+      <div className="moduleHeader">
+        <div>
+          <p className="eyebrow">LLM Provider</p>
+          <h2>大模型服务商</h2>
+        </div>
+        <span className={`moduleState ${usesMock ? "" : "active"}`}>{usesMock ? "本地 mock" : "远程调用"}</span>
+      </div>
+      <div className="providerGrid">
+        <label>
+          AI 服务商
+          <select value={selectedVendor} onChange={(event) => changeVendor(event.target.value as ProviderVendor)}>
+            {Object.entries(providerPresets).map(([value, preset]) => (
+              <option key={value} value={value}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedVendor === "custom" ? (
+          <label>
+            兼容接口地址
+            <input
+              placeholder="如 https://api.example.com/v1"
+              value={provider.baseUrl ?? ""}
+              onChange={(event) => onChange({ ...provider, baseUrl: event.target.value })}
+            />
+          </label>
+        ) : (
+          <div className="providerInfo">
+            <span>{selectedPreset.label} 服务地址</span>
+            <code>{selectedPreset.baseUrl}</code>
+          </div>
+        )}
+        <label>
+          模型
+          <input
+            list="model-options"
+            placeholder={selectedPreset.models[0] ? `如 ${selectedPreset.models[0]}` : "填写兼容接口支持的模型"}
+            value={provider.model ?? ""}
+            onChange={(event) => onChange({ ...provider, model: event.target.value })}
+          />
+          <datalist id="model-options">
+            {selectedPreset.models.map((model) => (
+              <option key={model} value={model} />
+            ))}
+          </datalist>
+        </label>
+        <label>
+          API Key
+          <input
+            type="password"
+            placeholder="留空则使用本地 mock"
+            value={provider.apiKey ?? ""}
+            onChange={(event) => onChange({ ...provider, apiKey: event.target.value })}
+          />
+        </label>
+      </div>
+      <p className="fieldHint">
+        {usesMock
+          ? "这个模块独立管理 AI 调用配置；模型或 API Key 留空时，流水线使用本地 mock。"
+          : `流水线生成阶段将调用 ${selectedPreset.label} 的 ${provider.model} 模型。`}
+      </p>
+    </section>
+  );
+}
+
+function PricingPage() {
+  const packs = [
+    { name: "轻量包", runs: "50 次", price: "¥29", note: "适合短篇试改和小规模验证" },
+    { name: "创作包", runs: "200 次", price: "¥99", note: "适合连续章节和多版本改写" },
+    { name: "工作室包", runs: "1000 次", price: "¥399", note: "适合团队项目和批量剧本生产" }
+  ];
+
+  const comparison = [
+    ["基础章节解析", "支持", "支持"],
+    ["结构化 YAML 输出", "支持", "支持"],
+    ["Schema 校验", "支持", "支持"],
+    ["真实 LLM 调用", "使用次数包", "使用次数包，优先队列"],
+    ["单次可处理章节", "最多 3 章", "建议 30 章以内"],
+    ["场景重新生成", "不支持", "支持"],
+    ["Markdown 剧本导出", "支持", "支持"],
+    ["团队协作与历史版本", "不支持", "规划中优先开放"]
+  ];
+
+  return (
+    <div className="pricingPage">
+      <section className="pricingHero">
+        <div>
+          <p className="eyebrow">会员服务</p>
+          <h2>按生成次数付费，先验证再扩展</h2>
+          <p>
+            ScriptForge 的计费围绕真实 AI 生成消耗设计。免费版用于验证流程，Pro 版面向持续改编和团队生产，
+            生成次数按包购买，用完再续。
+          </p>
+        </div>
+        <div className="pricingMetric">
+          <span>计费单位</span>
+          <strong>1 次生成</strong>
+          <p>完成一次章节理解、故事建模、场景拆分或剧本生成请求。</p>
+        </div>
+      </section>
+
+      <section className="planGrid">
+        <article className="planCard">
+          <div className="planIcon">
+            <Sparkles size={20} />
+          </div>
+          <p className="planKicker">Free</p>
+          <h3>免费版</h3>
+          <div className="planPrice">¥0</div>
+          <p className="planCopy">适合体验产品能力、验证小说改编链路和展示 Schema 结构。</p>
+          <ul>
+            <li>本地 mock 流水线不限次</li>
+            <li>真实 LLM 赠送 10 次生成额度</li>
+            <li>最多 3 章小说试改</li>
+            <li>YAML 校验、复制和下载</li>
+          </ul>
+          <button className="ghostButton">当前可用</button>
+        </article>
+
+        <article className="planCard featuredPlan">
+          <div className="planIcon">
+            <Gauge size={20} />
+          </div>
+          <p className="planKicker">Pro</p>
+          <h3>Pro 版</h3>
+          <div className="planPrice">¥79 起</div>
+          <p className="planCopy">适合长篇小说、多版本剧本初稿、工作室批量改编和商业项目交付。</p>
+          <ul>
+            <li>200 次生成</li>
+            <li>支持 OpenAI、DeepSeek、通义等模型</li>
+            <li>更长章节处理与优先队列</li>
+            <li>支持单场景重生成和高级导出</li>
+          </ul>
+          <button className="primaryButton">
+            <CreditCard size={18} />
+            购买次数包
+          </button>
+        </article>
+      </section>
+
+      <section className="usagePricing panel">
+        <div className="sectionHeader">
+          <h2>生成次数包</h2>
+          <span className="pricingNote">次数不过期，团队额度共享可作为后续 Pro 能力开放</span>
+        </div>
+        <div className="packGrid">
+          {packs.map((pack) => (
+            <article key={pack.name} className="packCard">
+              <span>{pack.name}</span>
+              <strong>{pack.price}</strong>
+              <p>{pack.runs}生成</p>
+              <small>{pack.note}</small>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="comparisonPanel panel">
+        <div className="sectionHeader">
+          <h2>套餐对比</h2>
+          <ShieldCheck size={18} />
+        </div>
+        <div className="comparisonTable">
+          <div className="tableHead">能力</div>
+          <div className="tableHead">免费版</div>
+          <div className="tableHead">Pro 版</div>
+          {comparison.map(([feature, free, pro]) => (
+            <div className="tableRow" key={feature}>
+              <span>{feature}</span>
+              <span>{free}</span>
+              <span>{pro}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="pricingFaq">
+        {[
+          ["为什么按生成次数收费？", "小说改编会拆成多个 AI 阶段，按次数计费比按月订阅更贴近实际成本，也方便作者按项目预算控制支出。"],
+          ["本地 mock 会扣次数吗？", "不会。本地 mock 用于演示流程和调试结构，不调用外部 LLM，也不计入生成次数。"],
+          ["一次完整改编会消耗几次？", "取决于章节数量和场景数量。系统会先解析章节，再按场景生成剧本，因此长篇项目会消耗更多次数。"]
+        ].map(([question, answer]) => (
+          <article key={question}>
+            <h3>{question}</h3>
+            <p>{answer}</p>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
 export default function Home() {
-  const [activeView, setActiveView] = useState<"input" | "chapters" | "result" | "schema">("input");
+  const [activeView, setActiveView] = useState<"input" | "chapters" | "result" | "schema" | "pricing">("input");
   const [title, setTitle] = useState("雨夜旧案");
   const [author, setAuthor] = useState("原作者");
   const [text, setText] = useState(sampleText);
   const [provider, setProvider] = useState<ProviderConfig>({
+    vendor: "openai",
     baseUrl: "https://api.openai.com/v1",
     model: ""
   });
@@ -251,7 +497,8 @@ export default function Home() {
               ["input", "项目输入"],
               ["chapters", "章节解析"],
               ["result", "改编结果"],
-              ["schema", "Schema 文档"]
+              ["schema", "Schema 文档"],
+              ["pricing", "会员服务"]
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -290,61 +537,40 @@ export default function Home() {
         {error ? <div className="errorBanner">{error}</div> : null}
 
         {activeView === "input" ? (
-          <div className="panel inputGrid">
-            <section className="formColumn">
-              <label>
-                小说标题
-                <input value={title} onChange={(event) => setTitle(event.target.value)} />
-              </label>
-              <label>
-                作者
-                <input value={author} onChange={(event) => setAuthor(event.target.value)} />
-              </label>
-              <label>
-                OpenAI-compatible Base URL
-                <input
-                  value={provider.baseUrl ?? ""}
-                  onChange={(event) => setProvider({ ...provider, baseUrl: event.target.value })}
-                />
-              </label>
-              <label>
-                模型
-                <input
-                  placeholder="留空则使用本地 mock"
-                  value={provider.model ?? ""}
-                  onChange={(event) => setProvider({ ...provider, model: event.target.value })}
-                />
-              </label>
-              <label>
-                API Key
-                <input
-                  type="password"
-                  placeholder="留空则使用本地 mock"
-                  value={provider.apiKey ?? ""}
-                  onChange={(event) => setProvider({ ...provider, apiKey: event.target.value })}
-                />
-              </label>
-              <div className="buttonRow">
-                <label className="iconButton fileButton" title="上传 txt 或 md 文件">
-                  <Upload size={18} />
-                  <input
-                    type="file"
-                    accept=".txt,.md,text/plain,text/markdown"
-                    onChange={(event) => handleFile(event.target.files?.[0])}
-                  />
+          <div className="inputStack">
+            <div className="panel inputGrid">
+              <section className="formColumn">
+                <label>
+                  小说标题
+                  <input value={title} onChange={(event) => setTitle(event.target.value)} />
                 </label>
-                <button className="primaryButton" onClick={parseChapters}>
-                  <Play size={18} />
-                  解析章节
-                </button>
-              </div>
-            </section>
-            <section className="editorColumn">
-              <label>
-                小说文本
-                <textarea value={text} onChange={(event) => setText(event.target.value)} />
-              </label>
-            </section>
+                <label>
+                  作者
+                  <input value={author} onChange={(event) => setAuthor(event.target.value)} />
+                </label>
+                <div className="buttonRow">
+                  <label className="iconButton fileButton" title="上传 txt 或 md 文件">
+                    <Upload size={18} />
+                    <input
+                      type="file"
+                      accept=".txt,.md,text/plain,text/markdown"
+                      onChange={(event) => handleFile(event.target.files?.[0])}
+                    />
+                  </label>
+                  <button className="primaryButton" onClick={parseChapters}>
+                    <Play size={18} />
+                    解析章节
+                  </button>
+                </div>
+              </section>
+              <section className="editorColumn">
+                <label>
+                  小说文本
+                  <textarea value={text} onChange={(event) => setText(event.target.value)} />
+                </label>
+              </section>
+            </div>
+            <ProviderModule provider={provider} onChange={setProvider} />
           </div>
         ) : null}
 
@@ -478,6 +704,8 @@ export default function Home() {
             </section>
           </div>
         ) : null}
+
+        {activeView === "pricing" ? <PricingPage /> : null}
       </section>
     </main>
   );
