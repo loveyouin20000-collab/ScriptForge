@@ -147,8 +147,8 @@ function ProviderModule({
     onChange({
       ...provider,
       vendor,
-      baseUrl: vendor === "custom" ? provider.baseUrl ?? "" : preset.baseUrl,
-      model: vendor === "custom" ? provider.model ?? "" : preset.models[0] ?? ""
+      baseUrl: vendor === "custom" ? "" : preset.baseUrl,
+      model: vendor === "custom" ? "" : preset.models[0] ?? ""
     });
   }
 
