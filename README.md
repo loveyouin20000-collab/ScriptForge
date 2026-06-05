@@ -293,6 +293,25 @@ npm.cmd run build
 - `npm.cmd test`：10 tests passed
 - `npm.cmd run build`：通过
 
+## 发布流程
+
+项目通过 GitHub Actions 在推送版本 tag 后自动发布：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+tag 名称需要以 `v` 开头，例如 `v0.1.0`。CI 会依次安装依赖、运行测试、构建 Next.js 应用、使用 Vercel CLI 发布生产环境，并在部署成功后创建 GitHub Release。
+
+GitHub Release 的 changelog 使用 GitHub 自动生成的 release notes，会根据上一个 release 之后的提交和 PR 生成摘要。
+
+发布到 Vercel 前，需要在 GitHub 仓库的 Actions secrets 中配置：
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
 ## 已知环境说明
 
 当前 Windows 环境中，仓库 pre-push hook 会尝试通过 Python 子进程执行 `npm run lint`，但该环境只能稳定识别 `npm.cmd`，因此 hook 会出现 `FileNotFoundError` 或 GBK 解码错误。所有提交在推送前均已手动执行：
