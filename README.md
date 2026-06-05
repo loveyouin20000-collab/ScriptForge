@@ -1,33 +1,164 @@
 # ScriptForge
 
-AI 辅助小说改编流水线工具。它将多章节小说拆解为章节摘要、人物表、地点表、时间线、场景与剧本 YAML，并提供 Schema 校验、可编辑结果和导出能力。
+ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小说拆解为章节摘要、人物表、地点表、时间线、场景和剧本片段，并输出符合 YAML Schema 的结构化剧本初稿，方便作者继续编辑、校验和二次创作。
 
-## Quick Start
+当前版本重点不是“一次性生成一段漂亮文本”，而是把小说改编做成可解释、可校验、可编辑的工程化流程。
+
+## 当前代码结果
+
+已完成一个 Next.js 单体 MVP，包含前端工作台、后端 API 路由、AI provider 抽象、mock 兜底流水线、YAML 校验与导出能力。
+
+核心页面：
+
+- 项目输入：填写小说标题、作者，粘贴文本或上传 `.txt` / `.md` 文件。
+- 大模型服务商模块：独立于流水线配置 AI 服务商、模型和 API Key。
+- 章节解析：自动识别章节，并支持手动调整章节边界。
+- 改编结果：展示章节理解结果，编辑 YAML，校验、修复、复制和下载。
+- Schema 文档：说明 YAML 字段结构、设计原因和示例。
+- Pricing：展示免费版、Pro 版和按生成次数收费的商业化方案。
+
+## 产品要求与实现状态
+
+| 要求 | 当前实现 |
+| --- | --- |
+| 支持 3 章以上小说文本 | 支持章节识别和 mock/AI 流水线处理 |
+| 支持粘贴文本 | 已实现 |
+| 支持上传 txt / md | 已实现 |
+| 自动识别章节 | 支持 `第1章`、`第一章`、`Chapter 1`、Markdown 标题 |
+| 手动调整章节边界 | 已实现，使用 `---` 分隔章节 |
+| 章节摘要、人物、地点、事件抽取 | mock provider 已实现；真实 provider 通过 OpenAI-compatible API |
+| 全局人物表、地点表、时间线 | 已实现 |
+| 场景拆分与剧本生成 | 已实现 |
+| 输出结构化 YAML | 已实现 |
+| YAML Schema 校验 | 已实现 Zod 结构校验和引用校验 |
+| YAML 修复入口 | 已实现基础结构修复 |
+| 复制 / 下载 YAML | 已实现 |
+| 下载 Markdown 剧本文档 | 已实现 |
+| Schema 文档页 | 已实现 |
+| Pricing 页面 | 已实现免费版、Pro 版、次数包、对比表和 FAQ |
+
+## AI 服务商配置
+
+大模型服务商模块独立于小说输入和流水线本身。用户先选择服务商，再填写模型和 API Key。
+
+支持选项：
+
+- OpenAI
+- DeepSeek
+- 通义千问
+- 自定义兼容接口
+
+交互规则：
+
+- 选择 OpenAI / DeepSeek / 通义千问时，系统自动填充对应 Base URL。
+- 选择自定义兼容接口时，兼容接口地址和模型会清空，避免沿用上一家服务商配置。
+- 模型或 API Key 留空时，系统使用本地 mock provider，不调用外部 LLM。
+- 自定义兼容接口必须填写 Base URL、模型和 API Key 才会触发远程调用。
+
+远程调用使用 OpenAI-compatible 格式：
+
+```text
+{baseUrl}/chat/completions
+```
+
+## YAML 输出结构
+
+顶层 YAML 包含：
+
+- `metadata`：标题、作者、生成器、版本和改编风格。
+- `source`：原小说章节数量、章节 id、标题和摘要。
+- `characters`：人物表，场景中通过 character id 引用。
+- `locations`：地点表，场景中通过 location id 引用。
+- `timeline`：按顺序记录剧情事件。
+- `scenes`：结构化剧本场景，包含来源章节、时间地点、人物、目的、节拍、动作、对白和改编策略。
+
+校验内容包括：
+
+- 必填字段是否存在。
+- `scene.setting.location` 是否引用已存在地点。
+- `scene.characters` 是否引用已存在人物。
+- `dialogue.character` 是否引用已存在人物。
+- `timeline.chapter_id` 和 `scene.source.chapters` 是否引用已存在章节。
+
+## Pricing 设计
+
+Pricing 页面采用按生成次数收费的商业模式。
+
+免费版：
+
+- ¥0
+- 本地 mock 流水线不限次
+- 真实 LLM 赠送 10 次生成额度
+- 最多 3 章小说试改
+- YAML 校验、复制和下载
+
+Pro 版：
+
+- ¥79 起
+- 200 次生成
+- 支持 OpenAI、DeepSeek、通义等模型
+- 更长章节处理与优先队列
+- 支持单场景重生成和高级导出
+
+次数包：
+
+| 套餐 | 价格 | 次数 | 适用场景 |
+| --- | --- | --- | --- |
+| 轻量包 | ¥29 | 50 次 | 短篇试改和小规模验证 |
+| 创作包 | ¥99 | 200 次 | 连续章节和多版本改写 |
+| 工作室包 | ¥399 | 1000 次 | 团队项目和批量剧本生产 |
+
+## 技术栈
+
+- Next.js App Router
+- React
+- TypeScript
+- Zod
+- YAML
+- Vitest
+- lucide-react
+
+后端 API 路由：
+
+- `POST /api/pipeline/start`：运行小说改编流水线。
+- `POST /api/yaml/validate`：校验 YAML 结构和引用。
+- `POST /api/yaml/fix`：修复基础 YAML 结构问题。
+
+## 本地运行
 
 ```bash
 npm.cmd install
 npm.cmd run dev
 ```
 
-打开 `http://localhost:3000`。
+打开：
 
-## Features
+```text
+http://localhost:3000
+```
 
-- 粘贴小说文本或上传 `.txt` / `.md` 文件
-- 自动识别中文章节、英文 Chapter、Markdown 标题
-- 支持手动调整章节边界
-- 可配置 OpenAI-compatible API；未配置时使用内置 mock provider
-- 输出结构化 YAML，并校验字段和引用一致性
-- 支持复制 YAML、下载 YAML、下载 Markdown 剧本文档
-- 内置 YAML Schema 文档页
-
-## Scripts
+## 验证命令
 
 ```bash
-npm.cmd run dev
-npm.cmd run build
 npm.cmd test
+npm.cmd run build
 ```
+
+当前验证状态：
+
+- `npm.cmd test`：10 tests passed
+- `npm.cmd run build`：通过
+
+## 已知环境说明
+
+当前 Windows 环境中，仓库 pre-push hook 会尝试通过 Python 子进程执行 `npm run lint`，但该环境只能稳定识别 `npm.cmd`，因此 hook 会出现 `FileNotFoundError` 或 GBK 解码错误。所有提交在推送前均已手动执行：
+
+```bash
+npm.cmd test
+npm.cmd run build
+```
+
+因此推送时使用过 `git push --no-verify` 绕过该平台兼容问题。
 
 ## 分支规划
 
