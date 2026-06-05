@@ -131,6 +131,95 @@ function IssueList({ issues }: { issues: ValidationIssue[] }) {
   );
 }
 
+function ProviderModule({
+  provider,
+  onChange
+}: {
+  provider: ProviderConfig;
+  onChange: (provider: ProviderConfig) => void;
+}) {
+  const selectedVendor = (provider.vendor ?? "openai") as ProviderVendor;
+  const selectedPreset = providerPresets[selectedVendor];
+  const usesMock = !provider.apiKey || !provider.model;
+
+  function changeVendor(vendor: ProviderVendor) {
+    const preset = providerPresets[vendor];
+    onChange({
+      ...provider,
+      vendor,
+      baseUrl: vendor === "custom" ? provider.baseUrl ?? "" : preset.baseUrl,
+      model: vendor === "custom" ? provider.model ?? "" : preset.models[0] ?? ""
+    });
+  }
+
+  return (
+    <section className="providerModule">
+      <div className="moduleHeader">
+        <div>
+          <p className="eyebrow">LLM Provider</p>
+          <h2>大模型服务商</h2>
+        </div>
+        <span className={`moduleState ${usesMock ? "" : "active"}`}>{usesMock ? "本地 mock" : "远程调用"}</span>
+      </div>
+      <div className="providerGrid">
+        <label>
+          AI 服务商
+          <select value={selectedVendor} onChange={(event) => changeVendor(event.target.value as ProviderVendor)}>
+            {Object.entries(providerPresets).map(([value, preset]) => (
+              <option key={value} value={value}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedVendor === "custom" ? (
+          <label>
+            兼容接口地址
+            <input
+              placeholder="如 https://api.example.com/v1"
+              value={provider.baseUrl ?? ""}
+              onChange={(event) => onChange({ ...provider, baseUrl: event.target.value })}
+            />
+          </label>
+        ) : (
+          <div className="providerInfo">
+            <span>{selectedPreset.label} 服务地址</span>
+            <code>{selectedPreset.baseUrl}</code>
+          </div>
+        )}
+        <label>
+          模型
+          <input
+            list="model-options"
+            placeholder={selectedPreset.models[0] ? `如 ${selectedPreset.models[0]}` : "填写兼容接口支持的模型"}
+            value={provider.model ?? ""}
+            onChange={(event) => onChange({ ...provider, model: event.target.value })}
+          />
+          <datalist id="model-options">
+            {selectedPreset.models.map((model) => (
+              <option key={model} value={model} />
+            ))}
+          </datalist>
+        </label>
+        <label>
+          API Key
+          <input
+            type="password"
+            placeholder="留空则使用本地 mock"
+            value={provider.apiKey ?? ""}
+            onChange={(event) => onChange({ ...provider, apiKey: event.target.value })}
+          />
+        </label>
+      </div>
+      <p className="fieldHint">
+        {usesMock
+          ? "这个模块独立管理 AI 调用配置；模型或 API Key 留空时，流水线使用本地 mock。"
+          : `流水线生成阶段将调用 ${selectedPreset.label} 的 ${provider.model} 模型。`}
+      </p>
+    </section>
+  );
+}
+
 export default function Home() {
   const [activeView, setActiveView] = useState<"input" | "chapters" | "result" | "schema">("input");
   const [title, setTitle] = useState("雨夜旧案");
@@ -157,20 +246,6 @@ export default function Home() {
     if (text.trim()) return 24;
     return 8;
   }, [chapters.length, result, text]);
-
-  const selectedVendor = (provider.vendor ?? "openai") as ProviderVendor;
-  const selectedPreset = providerPresets[selectedVendor];
-  const usesMock = !provider.apiKey || !provider.model;
-
-  function changeVendor(vendor: ProviderVendor) {
-    const preset = providerPresets[vendor];
-    setProvider({
-      ...provider,
-      vendor,
-      baseUrl: vendor === "custom" ? provider.baseUrl ?? "" : preset.baseUrl,
-      model: vendor === "custom" ? provider.model ?? "" : preset.models[0] ?? ""
-    });
-  }
 
   function parseChapters() {
     const parsed = splitChapters(text);
@@ -330,90 +405,40 @@ export default function Home() {
         {error ? <div className="errorBanner">{error}</div> : null}
 
         {activeView === "input" ? (
-          <div className="panel inputGrid">
-            <section className="formColumn">
-              <label>
-                小说标题
-                <input value={title} onChange={(event) => setTitle(event.target.value)} />
-              </label>
-              <label>
-                作者
-                <input value={author} onChange={(event) => setAuthor(event.target.value)} />
-              </label>
-              <label>
-                AI 服务商
-                <select value={selectedVendor} onChange={(event) => changeVendor(event.target.value as ProviderVendor)}>
-                  {Object.entries(providerPresets).map(([value, preset]) => (
-                    <option key={value} value={value}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {selectedVendor === "custom" ? (
+          <div className="inputStack">
+            <div className="panel inputGrid">
+              <section className="formColumn">
                 <label>
-                  兼容接口地址
-                  <input
-                    placeholder="如 https://api.example.com/v1"
-                    value={provider.baseUrl ?? ""}
-                    onChange={(event) => setProvider({ ...provider, baseUrl: event.target.value })}
-                  />
+                  小说标题
+                  <input value={title} onChange={(event) => setTitle(event.target.value)} />
                 </label>
-              ) : (
-                <div className="providerInfo">
-                  <span>{selectedPreset.label} 服务地址</span>
-                  <code>{selectedPreset.baseUrl}</code>
+                <label>
+                  作者
+                  <input value={author} onChange={(event) => setAuthor(event.target.value)} />
+                </label>
+                <div className="buttonRow">
+                  <label className="iconButton fileButton" title="上传 txt 或 md 文件">
+                    <Upload size={18} />
+                    <input
+                      type="file"
+                      accept=".txt,.md,text/plain,text/markdown"
+                      onChange={(event) => handleFile(event.target.files?.[0])}
+                    />
+                  </label>
+                  <button className="primaryButton" onClick={parseChapters}>
+                    <Play size={18} />
+                    解析章节
+                  </button>
                 </div>
-              )}
-              <label>
-                模型
-                <input
-                  list="model-options"
-                  placeholder={selectedPreset.models[0] ? `如 ${selectedPreset.models[0]}` : "填写兼容接口支持的模型"}
-                  value={provider.model ?? ""}
-                  onChange={(event) => setProvider({ ...provider, model: event.target.value })}
-                />
-                <datalist id="model-options">
-                  {selectedPreset.models.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
-              </label>
-              <label>
-                API Key
-                <input
-                  type="password"
-                  placeholder="留空则使用本地 mock"
-                  value={provider.apiKey ?? ""}
-                  onChange={(event) => setProvider({ ...provider, apiKey: event.target.value })}
-                />
-              </label>
-              <p className="fieldHint">
-                {usesMock
-                  ? "模型或 API Key 留空时使用本地 mock，不会调用外部 LLM。"
-                  : `将调用 ${selectedPreset.label} 的 ${provider.model} 模型。`}
-              </p>
-              <div className="buttonRow">
-                <label className="iconButton fileButton" title="上传 txt 或 md 文件">
-                  <Upload size={18} />
-                  <input
-                    type="file"
-                    accept=".txt,.md,text/plain,text/markdown"
-                    onChange={(event) => handleFile(event.target.files?.[0])}
-                  />
+              </section>
+              <section className="editorColumn">
+                <label>
+                  小说文本
+                  <textarea value={text} onChange={(event) => setText(event.target.value)} />
                 </label>
-                <button className="primaryButton" onClick={parseChapters}>
-                  <Play size={18} />
-                  解析章节
-                </button>
-              </div>
-            </section>
-            <section className="editorColumn">
-              <label>
-                小说文本
-                <textarea value={text} onChange={(event) => setText(event.target.value)} />
-              </label>
-            </section>
+              </section>
+            </div>
+            <ProviderModule provider={provider} onChange={setProvider} />
           </div>
         ) : null}
 

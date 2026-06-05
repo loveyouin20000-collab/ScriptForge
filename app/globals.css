@@ -205,6 +205,11 @@ h3 {
   gap: 0;
 }
 
+.inputStack {
+  display: grid;
+  gap: 18px;
+}
+
 .formColumn,
 .editorColumn,
 .summaryPane,
@@ -300,6 +305,58 @@ textarea:focus {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.providerModule {
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9f6ef;
+  box-shadow: var(--shadow);
+}
+
+.moduleHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.moduleHeader h2 {
+  margin: 0;
+}
+
+.moduleState {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.moduleState.active {
+  border-color: #bdd7ce;
+  color: var(--accent);
+  background: #eef8f4;
+}
+
+.providerGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.providerModule .fieldHint {
+  margin-bottom: 0;
 }
 
 .buttonRow,
@@ -520,6 +577,7 @@ pre {
 @media (max-width: 1040px) {
   .shell,
   .inputGrid,
+  .providerGrid,
   .chapterLayout,
   .resultLayout,
   .schemaLayout {
@@ -549,7 +607,8 @@ pre {
   }
 
   .topbar,
-  .sectionHeader {
+  .sectionHeader,
+  .moduleHeader {
     align-items: flex-start;
     flex-direction: column;
   }
