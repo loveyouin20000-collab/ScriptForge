@@ -287,8 +287,8 @@ function PricingPage() {
           <div className="planPrice">¥79 起</div>
           <p className="planCopy">适合长篇小说、多版本剧本初稿、工作室批量改编和商业项目交付。</p>
           <ul>
-            <li>按生成次数包付费</li>
-            <li>支持 OpenAI、DeepSeek、通义和自定义接口</li>
+            <li>200 次生成</li>
+            <li>支持 OpenAI、DeepSeek、通义等模型</li>
             <li>更长章节处理与优先队列</li>
             <li>支持单场景重生成和高级导出</li>
           </ul>
