@@ -126,6 +126,66 @@ Pro 版：
 
 ## 本地运行
 
+### 新窗口复现前置检查
+
+如果你在新的 Codex 窗口或新的终端里看到 `README.md` 只有 `# 我的项目`，说明当前目录或分支不是本次实现所在的工作区。
+
+本次实现所在分支：
+
+```text
+codex/ai-adaptation-pipeline-mvp
+```
+
+本次实现所在 worktree 路径：
+
+```text
+C:\Users\35078\.codex\worktrees\46d4\ScriptForge
+```
+
+在新窗口中优先进入这个目录：
+
+```powershell
+cd C:\Users\35078\.codex\worktrees\46d4\ScriptForge
+```
+
+确认当前仓库根目录和分支：
+
+```powershell
+git rev-parse --show-toplevel
+git branch --show-current
+```
+
+期望输出分别包含：
+
+```text
+C:/Users/35078/.codex/worktrees/46d4/ScriptForge
+codex/ai-adaptation-pipeline-mvp
+```
+
+如果你是在主仓库目录或全新克隆里复现，请先拉取远端分支：
+
+```powershell
+git fetch origin
+git switch codex/ai-adaptation-pipeline-mvp
+git pull --ff-only origin codex/ai-adaptation-pipeline-mvp
+```
+
+如果 `git switch` 提示该分支已经被其他 worktree 使用，就直接进入上面的 worktree 路径运行服务，不要在主仓库目录重复切换同一个分支。
+
+确认 README 是否已经是新版本：
+
+```powershell
+Get-Content README.md -TotalCount 5
+```
+
+第一行应为：
+
+```text
+# ScriptForge
+```
+
+并且后面应包含“当前代码结果”“重启本地服务”等章节。
+
 ```bash
 npm.cmd install
 npm.cmd run dev
@@ -218,6 +278,8 @@ try {
 ```text
 http://localhost:3000
 ```
+
+如果 in-app browser 仍显示旧错误页，请刷新当前标签页；服务端已经返回 `200` 时，通常只是浏览器保留了旧页面状态。
 
 ## 验证命令
 
