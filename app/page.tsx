@@ -284,7 +284,7 @@ function PricingPage() {
           </div>
           <p className="planKicker">Pro</p>
           <h3>Pro 版</h3>
-          <div className="planPrice">¥99 起</div>
+          <div className="planPrice">¥79 起</div>
           <p className="planCopy">适合长篇小说、多版本剧本初稿、工作室批量改编和商业项目交付。</p>
           <ul>
             <li>按生成次数包付费</li>
