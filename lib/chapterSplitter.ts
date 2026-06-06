@@ -1,4 +1,5 @@
 import type { Chapter } from "./types";
+import type { AiProvider } from "./ai/provider";
 
 const CHAPTER_PATTERN =
   /^(?:#{1,3}\s*)?(?:(第\s*[零一二三四五六七八九十百千万两\d]+\s*[章节回])|(?:chapter\s+\d+)|(?:CHAPTER\s+\d+))(?:[\s:：\-—]+(.+))?$/i;
@@ -10,6 +11,16 @@ function normalizeTitle(line: string, fallback: string) {
 
 function chapterId(index: number) {
   return `ch_${String(index + 1).padStart(3, "0")}`;
+}
+
+function normalizeChapters(chapters: Array<Partial<Chapter>>): Chapter[] {
+  return chapters
+    .filter((chapter) => typeof chapter.title === "string" && typeof chapter.text === "string")
+    .map((chapter, index) => ({
+      id: chapter.id || chapterId(index),
+      title: chapter.title?.trim() || `第${index + 1}章`,
+      text: chapter.text?.trim() || chapter.title?.trim() || `第${index + 1}章`
+    }));
 }
 
 export function splitChapters(text: string): Chapter[] {
@@ -82,4 +93,16 @@ export function chaptersFromManualText(text: string): Chapter[] {
         text: (hasTitle ? rest.join("\n") : block).trim() || block
       };
     });
+}
+
+export async function parseChaptersWithProvider(text: string, provider?: AiProvider | null): Promise<Chapter[]> {
+  if (!provider) return splitChapters(text);
+
+  const response = await provider.generateJson<{ chapters: Array<Partial<Chapter>> }>({
+    schemaName: "chapter_split",
+    system: "你是小说改编流水线中的章节边界识别器。",
+    prompt: `请将以下小说正文拆分为章节，输出 JSON：{"chapters":[{"title":"章节标题","text":"章节正文"}]}。如果原文没有明确章节标题，请根据情节自然分段，但不要改写原文内容。\n小说正文：\n${text}`
+  });
+  const chapters = normalizeChapters(response.chapters ?? []);
+  return chapters.length ? chapters : splitChapters(text);
 }

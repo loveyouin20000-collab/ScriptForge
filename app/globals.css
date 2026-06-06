@@ -331,16 +331,36 @@ h3 {
   background: #eef8f4;
 }
 
+.workflowModelInfo {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid #d7c7a7;
+  border-radius: 8px;
+  background: #fff9ed;
+}
+
 .workflowQuota span,
-.workflowQuota small {
+.workflowQuota small,
+.workflowModelInfo span,
+.workflowModelInfo small {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
 }
 
-.workflowQuota strong {
+.workflowQuota strong,
+.workflowModelInfo strong {
   color: var(--accent);
   font-size: 18px;
+}
+
+.workflowModelInfo .ghostButton {
+  min-height: 30px;
+  justify-content: center;
+  margin-top: 4px;
+  font-size: 12px;
 }
 
 .workflowSteps {
@@ -480,34 +500,6 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(31, 111, 98, 0.14);
 }
 
-.providerInfo {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 14px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.providerInfo code {
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  overflow: auto;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f7f3ec;
-  color: var(--ink);
-  font-family:
-    "SFMono-Regular",
-    Consolas,
-    "Liberation Mono",
-    monospace;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .fieldHint {
   margin: 0 0 14px;
   color: var(--muted);
@@ -572,7 +564,10 @@ textarea:focus {
 }
 
 .adminProviderPanel {
-  grid-column: 1 / -1;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 22px;
 }
 
 .adminProviderList {
@@ -976,7 +971,13 @@ dd {
 
 .usersPage {
   display: grid;
-  grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr);
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+.userManagementStack {
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 18px;
 }
 
