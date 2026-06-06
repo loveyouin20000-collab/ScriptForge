@@ -1361,135 +1361,137 @@ export default function Home() {
 
         {activeView === "users" && isAdmin ? (
           <div className="usersPage">
-            <section className="panel userFormPanel">
-              <div className="sectionHeader">
-                <div>
-                  <p className="eyebrow">Admin</p>
-                  <h2>{editingAccountId ? "编辑用户" : "新增用户"}</h2>
-                </div>
-                <UserCog size={18} />
-              </div>
-              <label>
-                用户名
-                <input
-                  value={accountDraft.username}
-                  onChange={(event) => setAccountDraft((current) => ({ ...current, username: event.target.value }))}
-                />
-              </label>
-              <label>
-                密码
-                <input
-                  value={accountDraft.password}
-                  onChange={(event) => setAccountDraft((current) => ({ ...current, password: event.target.value }))}
-                />
-              </label>
-              <div className="accountFormGrid">
-                <label>
-                  角色
-                  <select
-                    value={accountDraft.role}
-                    onChange={(event) =>
-                      setAccountDraft((current) => ({ ...current, role: event.target.value as AccountDraft["role"] }))
-                    }
-                  >
-                    <option value="admin">管理员</option>
-                    <option value="user">用户</option>
-                  </select>
-                </label>
-                <label>
-                  状态
-                  <select
-                    value={accountDraft.status}
-                    onChange={(event) =>
-                      setAccountDraft((current) => ({
-                        ...current,
-                        status: event.target.value as AccountDraft["status"]
-                      }))
-                    }
-                  >
-                    <option value="active">启用</option>
-                    <option value="disabled">停用</option>
-                  </select>
-                </label>
-              </div>
-              <div className="buttonRow">
-                <button className="primaryButton" onClick={saveAccount}>
-                  {editingAccountId ? "保存修改" : "创建用户"}
-                </button>
-                <button className="ghostButton" onClick={resetAccountForm}>
-                  清空
-                </button>
-              </div>
-            </section>
-
-            <AdminProviderModule managedProviders={managedProviders} onChange={setManagedProviders} />
-
-            <section className="panel userTablePanel">
-              <div className="sectionHeader">
-                <div>
-                  <p className="eyebrow">Users</p>
-                  <h2>用户管理</h2>
-                </div>
-                <span className="moduleState active">{accounts.length} 个账户</span>
-              </div>
-              <div className="accountTable">
-                <div className="accountTableHead">
-                  <span>用户名</span>
-                  <span>角色</span>
-                  <span>状态</span>
-                  <span>剩余次数</span>
-                  <span>已用次数</span>
-                  <span>创建时间</span>
-                  <span>操作</span>
-                </div>
-                {accounts.map((account) => (
-                  <div key={account.id} className="accountTableRow">
-                    <strong>{account.username}</strong>
-                    <span>{account.role === "admin" ? "管理员" : "用户"}</span>
-                    <span className={`moduleState ${account.status === "active" ? "active" : ""}`}>
-                      {account.status === "active" ? "启用" : "停用"}
-                    </span>
-                    <strong>{getRemainingRuns(account)} 次</strong>
-                    <span>{account.quota.usedRuns} / {account.quota.totalRuns}</span>
-                    <span>{formatVersionTime(account.createdAt)}</span>
-                    <div className="tableActions">
-                      <button className="ghostButton" onClick={() => editAccount(account)}>
-                        编辑
-                      </button>
-                      <button className="iconButton dangerButton" title="删除用户" onClick={() => removeAccount(account)}>
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="usageLogPanel">
+            <div className="userManagementStack">
+              <section className="panel userFormPanel">
                 <div className="sectionHeader">
                   <div>
-                    <p className="eyebrow">Usage Log</p>
-                    <h3>使用记录</h3>
+                    <p className="eyebrow">Admin</p>
+                    <h2>{editingAccountId ? "编辑用户" : "新增用户"}</h2>
                   </div>
-                  <span className={`moduleState ${accountUsageRecords.length > 0 ? "active" : ""}`}>
-                    {accountUsageRecords.length} 条记录
-                  </span>
+                  <UserCog size={18} />
                 </div>
-                {accountUsageRecords.length > 0 ? (
-                  <div className="usageLogList">
-                    {accountUsageRecords.slice(0, 8).map((record) => (
-                      <article key={record.id} className="usageLogItem">
-                        <strong>{record.username}</strong>
-                        <span>{record.action}</span>
-                        <span>{record.cost > 0 ? `扣 ${record.cost} 次` : "不扣次数"}</span>
-                        <span>{formatVersionTime(record.createdAt)}</span>
-                        <small>{record.note}</small>
-                      </article>
-                    ))}
+                <label>
+                  用户名
+                  <input
+                    value={accountDraft.username}
+                    onChange={(event) => setAccountDraft((current) => ({ ...current, username: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  密码
+                  <input
+                    value={accountDraft.password}
+                    onChange={(event) => setAccountDraft((current) => ({ ...current, password: event.target.value }))}
+                  />
+                </label>
+                <div className="accountFormGrid">
+                  <label>
+                    角色
+                    <select
+                      value={accountDraft.role}
+                      onChange={(event) =>
+                        setAccountDraft((current) => ({ ...current, role: event.target.value as AccountDraft["role"] }))
+                      }
+                    >
+                      <option value="admin">管理员</option>
+                      <option value="user">用户</option>
+                    </select>
+                  </label>
+                  <label>
+                    状态
+                    <select
+                      value={accountDraft.status}
+                      onChange={(event) =>
+                        setAccountDraft((current) => ({
+                          ...current,
+                          status: event.target.value as AccountDraft["status"]
+                        }))
+                      }
+                    >
+                      <option value="active">启用</option>
+                      <option value="disabled">停用</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="buttonRow">
+                  <button className="primaryButton" onClick={saveAccount}>
+                    {editingAccountId ? "保存修改" : "创建用户"}
+                  </button>
+                  <button className="ghostButton" onClick={resetAccountForm}>
+                    清空
+                  </button>
+                </div>
+              </section>
+
+              <section className="panel userTablePanel">
+                <div className="sectionHeader">
+                  <div>
+                    <p className="eyebrow">Users</p>
+                    <h2>用户管理</h2>
                   </div>
-                ) : (
-                  <p className="emptyState">用户完成生成后，这里会记录使用时间、操作和扣次情况。</p>
-                )}
-              </div>
-            </section>
+                  <span className="moduleState active">{accounts.length} 个账户</span>
+                </div>
+                <div className="accountTable">
+                  <div className="accountTableHead">
+                    <span>用户名</span>
+                    <span>角色</span>
+                    <span>状态</span>
+                    <span>剩余次数</span>
+                    <span>已用次数</span>
+                    <span>创建时间</span>
+                    <span>操作</span>
+                  </div>
+                  {accounts.map((account) => (
+                    <div key={account.id} className="accountTableRow">
+                      <strong>{account.username}</strong>
+                      <span>{account.role === "admin" ? "管理员" : "用户"}</span>
+                      <span className={`moduleState ${account.status === "active" ? "active" : ""}`}>
+                        {account.status === "active" ? "启用" : "停用"}
+                      </span>
+                      <strong>{getRemainingRuns(account)} 次</strong>
+                      <span>{account.quota.usedRuns} / {account.quota.totalRuns}</span>
+                      <span>{formatVersionTime(account.createdAt)}</span>
+                      <div className="tableActions">
+                        <button className="ghostButton" onClick={() => editAccount(account)}>
+                          编辑
+                        </button>
+                        <button className="iconButton dangerButton" title="删除用户" onClick={() => removeAccount(account)}>
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="usageLogPanel">
+                  <div className="sectionHeader">
+                    <div>
+                      <p className="eyebrow">Usage Log</p>
+                      <h3>使用记录</h3>
+                    </div>
+                    <span className={`moduleState ${accountUsageRecords.length > 0 ? "active" : ""}`}>
+                      {accountUsageRecords.length} 条记录
+                    </span>
+                  </div>
+                  {accountUsageRecords.length > 0 ? (
+                    <div className="usageLogList">
+                      {accountUsageRecords.slice(0, 8).map((record) => (
+                        <article key={record.id} className="usageLogItem">
+                          <strong>{record.username}</strong>
+                          <span>{record.action}</span>
+                          <span>{record.cost > 0 ? `扣 ${record.cost} 次` : "不扣次数"}</span>
+                          <span>{formatVersionTime(record.createdAt)}</span>
+                          <small>{record.note}</small>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="emptyState">用户完成生成后，这里会记录使用时间、操作和扣次情况。</p>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <AdminProviderModule managedProviders={managedProviders} onChange={setManagedProviders} />
           </div>
         ) : null}
 
