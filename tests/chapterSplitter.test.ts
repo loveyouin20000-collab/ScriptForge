@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { chaptersFromManualText, splitChapters } from "@/lib/chapterSplitter";
+import type { GenerateJsonRequest } from "@/lib/ai/provider";
+import { chaptersFromManualText, parseChaptersWithProvider, splitChapters } from "@/lib/chapterSplitter";
 
 describe("splitChapters", () => {
   it("splits Chinese numeric chapter titles", () => {
@@ -33,5 +34,28 @@ describe("chaptersFromManualText", () => {
     const chapters = chaptersFromManualText("第一章\n正文\n\n---\n\n第二章\n正文");
     expect(chapters).toHaveLength(2);
     expect(chapters[1].id).toBe("ch_002");
+  });
+});
+
+describe("parseChaptersWithProvider", () => {
+  it("uses the remote provider when available", async () => {
+    const calls: string[] = [];
+    const chapters = await parseChaptersWithProvider("没有明显章节标题的一段小说。", {
+      async generateJson<T>(request: GenerateJsonRequest) {
+        calls.push(request.schemaName);
+        return {
+          chapters: [
+            { title: "AI 识别第一章", text: "第一段内容" },
+            { title: "AI 识别第二章", text: "第二段内容" }
+          ]
+        } as T;
+      }
+    });
+
+    expect(calls).toEqual(["chapter_split"]);
+    expect(chapters).toEqual([
+      { id: "ch_001", title: "AI 识别第一章", text: "第一段内容" },
+      { id: "ch_002", title: "AI 识别第二章", text: "第二段内容" }
+    ]);
   });
 });

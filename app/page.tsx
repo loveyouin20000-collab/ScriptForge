@@ -37,8 +37,8 @@ import {
   type AccountDraft
 } from "@/lib/accounts";
 import { buildChapterReviewItems } from "@/lib/chapterReview";
-import { chaptersFromManualText, splitChapters } from "@/lib/chapterSplitter";
-import { getUsageQuota } from "@/lib/usageQuota";
+import { chaptersFromManualText } from "@/lib/chapterSplitter";
+import { getMergedYamlSaveUsage, getProviderUsageCost, getUsageQuota, type UsageQuota } from "@/lib/usageQuota";
 import { getWorkflowSteps, type WorkflowStepId } from "@/lib/workflow";
 import {
   addYamlVersion,
@@ -174,22 +174,39 @@ function IssueList({ issues }: { issues: ValidationIssue[] }) {
   );
 }
 
-function ProviderModule({
-  provider,
-  managedProviders,
-  onChange
-}: {
-  provider: ProviderConfig;
-  managedProviders: ManagedProviderConfig[];
-  onChange: (provider: ProviderConfig) => void;
-}) {
+function getProviderSelection(provider: ProviderConfig, managedProviders: ManagedProviderConfig[]) {
   const enabledProviders = managedProviders.filter((managedProvider) => managedProvider.enabled);
   const selectedProvider =
     enabledProviders.find((managedProvider) => managedProvider.vendor === provider.vendor) ?? enabledProviders[0];
   const selectedVendor = selectedProvider?.vendor ?? "openai";
   const selectedModel = selectedProvider?.models.includes(provider.model ?? "") ? provider.model ?? "" : selectedProvider?.models[0] ?? "";
+
+  return {
+    enabledProviders,
+    selectedProvider,
+    selectedVendor,
+    selectedModel,
+    label: selectedProvider?.label ?? "未选择服务商"
+  };
+}
+
+function ProviderModule({
+  provider,
+  managedProviders,
+  usageQuota,
+  onChange
+}: {
+  provider: ProviderConfig;
+  managedProviders: ManagedProviderConfig[];
+  usageQuota: UsageQuota;
+  onChange: (provider: ProviderConfig) => void;
+}) {
+  const { enabledProviders, selectedProvider, selectedVendor, selectedModel } = getProviderSelection(
+    provider,
+    managedProviders
+  );
   const readyForRemote = Boolean(selectedProvider?.apiKey && selectedProvider.baseUrl && selectedModel);
-  const usageQuota = getUsageQuota();
+  const selectedProviderCost = getProviderUsageCost({ vendor: selectedVendor });
 
   function changeVendor(vendor: ProviderVendor) {
     const selected = enabledProviders.find((managedProvider) => managedProvider.vendor === vendor);
@@ -242,19 +259,17 @@ function ProviderModule({
             ))}
           </select>
         </label>
-        <div className="providerInfo">
-          <span>调用配置</span>
-          <code>{readyForRemote ? "由管理员统一提供" : "未配置时使用本地 mock"}</code>
-        </div>
       </div>
       <p className="fieldHint">
-        用户端只选择可用服务商与模型；API Key 和兼容接口地址由管理员统一维护。
+        用户端只选择可用服务商与模型；API Key 和兼容接口地址由管理员统一维护。远程调用计费：
+        OpenAI 每次消耗 3 次，DeepSeek / 通义千问每次消耗 1 次。
       </p>
       <div className="quotaStrip">
         <span>{usageQuota.plan} 额度</span>
         <strong>{usageQuota.remainingRuns}</strong>
         <small>
-          已用 {usageQuota.usedRuns} / {usageQuota.totalRuns} 次，{usageQuota.note}
+          当前选择远程调用每次消耗 {selectedProviderCost} 次；已用 {usageQuota.usedRuns} / {usageQuota.totalRuns} 次，
+          {usageQuota.note}
         </small>
       </div>
     </section>
@@ -344,10 +359,12 @@ function AdminProviderModule({
 function PricingPage({
   provider,
   managedProviders,
+  usageQuota,
   onProviderChange
 }: {
   provider: ProviderConfig;
   managedProviders: ManagedProviderConfig[];
+  usageQuota: UsageQuota;
   onProviderChange: (provider: ProviderConfig) => void;
 }) {
   const packs = [
@@ -369,7 +386,12 @@ function PricingPage({
 
   return (
     <div className="pricingPage">
-      <ProviderModule provider={provider} managedProviders={managedProviders} onChange={onProviderChange} />
+      <ProviderModule
+        provider={provider}
+        managedProviders={managedProviders}
+        usageQuota={usageQuota}
+        onChange={onProviderChange}
+      />
 
       <section className="pricingHero">
         <div>
@@ -516,10 +538,15 @@ export default function Home() {
   const [yamlVersionsLoaded, setYamlVersionsLoaded] = useState(false);
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [versionDraft, setVersionDraft] = useState("");
-  const usageQuota = getUsageQuota();
+  const [pendingResultUsageCost, setPendingResultUsageCost] = useState(0);
   const currentAccount = useMemo(
     () => accounts.find((account) => account.id === sessionAccountId) ?? null,
     [accounts, sessionAccountId]
+  );
+  const usageQuota = getUsageQuota(currentAccount?.quota);
+  const workflowProviderSelection = useMemo(
+    () => getProviderSelection(provider, managedProviders),
+    [provider, managedProviders]
   );
   const isAdmin = canManageUsers(currentAccount);
 
@@ -682,19 +709,7 @@ export default function Home() {
     setStatus(`用户 ${account.username} 已删除`);
   }
 
-  function saveProjectInput() {
-    if (!title.trim() || !text.trim()) {
-      setStatus("请先填写小说标题和正文");
-      return;
-    }
-    setInputSaved(true);
-    setChaptersSaved(false);
-    setResultSaved(false);
-    setStatus("项目输入已保存，可以进入章节解析");
-  }
-
-  function parseChapters() {
-    const parsed = splitChapters(text);
+  function applyParsedChapters(parsed: Chapter[]) {
     setWorkflowStarted(true);
     setChapters(parsed);
     setChaptersSaved(false);
@@ -710,6 +725,39 @@ export default function Home() {
     );
     setWorkflowStep("chapters");
     setStatus(parsed.length >= 3 ? `已识别 ${parsed.length} 个章节` : "章节少于 3 个，仍可演示生成");
+  }
+
+  async function saveProjectInput() {
+    if (!title.trim() || !text.trim()) {
+      setStatus("请先填写小说标题和正文");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setStatus("正在调用大模型进行章节解析");
+    try {
+      const resolvedProvider = resolveProviderConfig(provider, managedProviders);
+      const response = await fetch("/api/chapters/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          provider: resolvedProvider
+        })
+      });
+      const payload = (await response.json()) as { chapters?: Chapter[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "章节解析失败");
+
+      setInputSaved(true);
+      setResultSaved(false);
+      applyParsedChapters(payload.chapters ?? []);
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : "章节解析失败");
+      setStatus("章节解析失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function applyManualChapters() {
@@ -733,6 +781,11 @@ export default function Home() {
     setYamlVersions((current) => addYamlVersion(current, version));
     setSelectedVersionId(version.id);
     setVersionDraft(version.yaml);
+    if (currentAccount && !resultSaved) {
+      setAccounts((current) =>
+        recordAccountUsage(current, currentAccount.id, getMergedYamlSaveUsage(pendingResultUsageCost))
+      );
+    }
     setResultSaved(true);
     setStatus(`改编结果已保存为 ${formatVersionTime(version.createdAt)} 的版本`);
   }
@@ -804,16 +857,9 @@ export default function Home() {
       setIssues(payload.validation.issues);
       setIsValid(payload.validation.valid);
       setResultSaved(false);
-      if (currentAccount) {
-        const usesRemoteProvider = Boolean(resolvedProvider.apiKey && resolvedProvider.model);
-        setAccounts((current) =>
-          recordAccountUsage(current, currentAccount.id, {
-            action: "生成改编结果",
-            cost: usesRemoteProvider ? 1 : 0,
-            note: usesRemoteProvider ? "真实 LLM 调用，扣除 1 次" : "本地 mock 生成，不扣次数"
-          })
-        );
-      }
+      setPendingResultUsageCost(
+        resolvedProvider.apiKey && resolvedProvider.model ? getProviderUsageCost(resolvedProvider) : 0
+      );
       setWorkflowStep("result");
       setStatus(payload.validation.valid ? "生成完成，YAML 已通过校验" : "生成完成，但需要修复校验问题");
     } catch (generationError) {
@@ -884,13 +930,13 @@ export default function Home() {
     if (workflowStep === "input") {
       return (
         <div className="workflowActions">
-          <button className="ghostButton" onClick={saveProjectInput}>
-            保存
+          <button className="ghostButton" onClick={saveProjectInput} disabled={loading}>
+            {loading ? "解析中" : "保存"}
           </button>
           <button className="ghostButton" disabled>
             上一步
           </button>
-          <button className="primaryButton" onClick={parseChapters} disabled={!inputSaved}>
+          <button className="primaryButton" onClick={saveProjectInput} disabled={loading}>
             下一步
           </button>
         </div>
@@ -1039,6 +1085,17 @@ export default function Home() {
                 <p>客户点击开始后，按项目输入、章节解析、改编结果三个步骤完成小说改编。</p>
               </div>
               <div className="workflowLeadActions">
+                <div
+                  className="workflowModelInfo"
+                  aria-label={`当前大模型 ${workflowProviderSelection.label} ${workflowProviderSelection.selectedModel || "未选择模型"}`}
+                >
+                  <span>当前大模型</span>
+                  <strong>{workflowProviderSelection.label}</strong>
+                  <small>{workflowProviderSelection.selectedModel || "未选择模型"}</small>
+                  <button className="ghostButton" onClick={() => setActiveView("pricing")}>
+                    在会员服务调整品牌和模型
+                  </button>
+                </div>
                 <div className="workflowQuota" aria-label={`剩余 ${usageQuota.remainingRuns} 次生成`}>
                   <span>{usageQuota.plan} 额度</span>
                   <strong>剩余 {usageQuota.remainingRuns} 次</strong>
@@ -1523,7 +1580,12 @@ export default function Home() {
         ) : null}
 
         {activeView === "pricing" ? (
-          <PricingPage provider={provider} managedProviders={managedProviders} onProviderChange={setProvider} />
+          <PricingPage
+            provider={provider}
+            managedProviders={managedProviders}
+            usageQuota={usageQuota}
+            onProviderChange={setProvider}
+          />
         ) : null}
       </section>
     </main>
