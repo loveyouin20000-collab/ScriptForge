@@ -572,7 +572,10 @@ textarea:focus {
 }
 
 .adminProviderPanel {
-  grid-column: 1 / -1;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 22px;
 }
 
 .adminProviderList {
@@ -976,7 +979,13 @@ dd {
 
 .usersPage {
   display: grid;
-  grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr);
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+.userManagementStack {
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 18px;
 }
 
