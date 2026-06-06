@@ -8,16 +8,55 @@ import {
   Download,
   FileText,
   Gauge,
+  LogOut,
   Play,
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Upload,
-  Wand2
+  UserCog,
+  Wand2,
+  History,
+  RotateCcw,
+  Save
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_ACCOUNTS,
+  authenticateAccount,
+  canManageUsers,
+  createAccount,
+  deleteAccount,
+  getRemainingRuns,
+  parseAccounts,
+  recordAccountUsage,
+  serializeAccounts,
+  updateAccount,
+  type Account,
+  type AccountDraft
+} from "@/lib/accounts";
+import { buildChapterReviewItems } from "@/lib/chapterReview";
 import { chaptersFromManualText, splitChapters } from "@/lib/chapterSplitter";
-import type { Chapter, ProviderConfig, ScriptYaml, ValidationIssue } from "@/lib/types";
+import { getUsageQuota } from "@/lib/usageQuota";
+import { getWorkflowSteps, type WorkflowStepId } from "@/lib/workflow";
+import {
+  addYamlVersion,
+  createYamlVersion,
+  deleteYamlVersion,
+  parseYamlVersions,
+  serializeYamlVersions,
+  updateYamlVersionContent,
+  YAML_VERSION_LIMIT,
+  type SavedYamlVersion
+} from "@/lib/yamlVersions";
+import {
+  defaultManagedProviders,
+  parseManagedProviders,
+  resolveProviderConfig,
+  serializeManagedProviders
+} from "@/lib/ai/providerCatalog";
+import type { Chapter, ManagedProviderConfig, ProviderConfig, ScriptYaml, ValidationIssue } from "@/lib/types";
 
 type PipelineResult = {
   script: ScriptYaml;
@@ -29,6 +68,29 @@ type PipelineResult = {
     issues: ValidationIssue[];
   };
 };
+
+type ActiveView = "workflow" | "schema" | "versions" | "pricing" | "users";
+
+const ACCOUNTS_STORAGE_KEY = "scriptforge.accounts";
+const SESSION_STORAGE_KEY = "scriptforge.sessionAccountId";
+const YAML_HISTORY_STORAGE_KEY = "scriptforge.yamlVersions";
+const MANAGED_PROVIDERS_STORAGE_KEY = "scriptforge.managedProviders";
+
+const emptyAccountDraft: AccountDraft = {
+  username: "",
+  password: "",
+  role: "user",
+  status: "active"
+};
+
+function formatVersionTime(createdAt: string) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(createdAt));
+}
 
 const sampleText = `第一章 雨夜归人
 雨水顺着老城区咖啡馆的玻璃窗滑落。林晚独自坐在窗边，手机里躺着一条陌生短信：想知道你父亲的真相，今晚别离开。
@@ -84,30 +146,7 @@ scenes:
       - type: action
         content: 雨水拍打着玻璃窗。`;
 
-const providerPresets = {
-  openai: {
-    label: "OpenAI",
-    baseUrl: "https://api.openai.com/v1",
-    models: ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"]
-  },
-  deepseek: {
-    label: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
-    models: ["deepseek-chat", "deepseek-reasoner"]
-  },
-  tongyi: {
-    label: "通义千问",
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    models: ["qwen-plus", "qwen-turbo", "qwen-max"]
-  },
-  custom: {
-    label: "自定义兼容接口",
-    baseUrl: "",
-    models: []
-  }
-} as const;
-
-type ProviderVendor = keyof typeof providerPresets;
+type ProviderVendor = ManagedProviderConfig["vendor"];
 
 function downloadText(filename: string, content: string, type = "text/plain;charset=utf-8") {
   const blob = new Blob([content], { type });
@@ -137,22 +176,26 @@ function IssueList({ issues }: { issues: ValidationIssue[] }) {
 
 function ProviderModule({
   provider,
+  managedProviders,
   onChange
 }: {
   provider: ProviderConfig;
+  managedProviders: ManagedProviderConfig[];
   onChange: (provider: ProviderConfig) => void;
 }) {
-  const selectedVendor = (provider.vendor ?? "openai") as ProviderVendor;
-  const selectedPreset = providerPresets[selectedVendor];
-  const usesMock = !provider.apiKey || !provider.model;
+  const enabledProviders = managedProviders.filter((managedProvider) => managedProvider.enabled);
+  const selectedProvider =
+    enabledProviders.find((managedProvider) => managedProvider.vendor === provider.vendor) ?? enabledProviders[0];
+  const selectedVendor = selectedProvider?.vendor ?? "openai";
+  const selectedModel = selectedProvider?.models.includes(provider.model ?? "") ? provider.model ?? "" : selectedProvider?.models[0] ?? "";
+  const readyForRemote = Boolean(selectedProvider?.apiKey && selectedProvider.baseUrl && selectedModel);
+  const usageQuota = getUsageQuota();
 
   function changeVendor(vendor: ProviderVendor) {
-    const preset = providerPresets[vendor];
+    const selected = enabledProviders.find((managedProvider) => managedProvider.vendor === vendor);
     onChange({
-      ...provider,
       vendor,
-      baseUrl: vendor === "custom" ? "" : preset.baseUrl,
-      model: vendor === "custom" ? "" : preset.models[0] ?? ""
+      model: selected?.models[0] ?? ""
     });
   }
 
@@ -163,68 +206,150 @@ function ProviderModule({
           <p className="eyebrow">LLM Provider</p>
           <h2>大模型服务商</h2>
         </div>
-        <span className={`moduleState ${usesMock ? "" : "active"}`}>{usesMock ? "本地 mock" : "远程调用"}</span>
+        <div className="providerBadges">
+          <span className={`moduleState ${readyForRemote ? "active" : ""}`}>
+            {readyForRemote ? "远程调用" : "待管理员配置"}
+          </span>
+          <span className="moduleState active">剩余 {usageQuota.remainingRuns} 次</span>
+        </div>
       </div>
       <div className="providerGrid">
         <label>
           AI 服务商
-          <select value={selectedVendor} onChange={(event) => changeVendor(event.target.value as ProviderVendor)}>
-            {Object.entries(providerPresets).map(([value, preset]) => (
-              <option key={value} value={value}>
-                {preset.label}
+          <select
+            value={selectedVendor}
+            disabled={!enabledProviders.length}
+            onChange={(event) => changeVendor(event.target.value as ProviderVendor)}
+          >
+            {enabledProviders.map((managedProvider) => (
+              <option key={managedProvider.vendor} value={managedProvider.vendor}>
+                {managedProvider.label}
               </option>
             ))}
           </select>
         </label>
-        {selectedVendor === "custom" ? (
-          <label>
-            兼容接口地址
-            <input
-              placeholder="如 https://api.example.com/v1"
-              value={provider.baseUrl ?? ""}
-              onChange={(event) => onChange({ ...provider, baseUrl: event.target.value })}
-            />
-          </label>
-        ) : (
-          <div className="providerInfo">
-            <span>{selectedPreset.label} 服务地址</span>
-            <code>{selectedPreset.baseUrl}</code>
-          </div>
-        )}
         <label>
           模型
-          <input
-            list="model-options"
-            placeholder={selectedPreset.models[0] ? `如 ${selectedPreset.models[0]}` : "填写兼容接口支持的模型"}
-            value={provider.model ?? ""}
-            onChange={(event) => onChange({ ...provider, model: event.target.value })}
-          />
-          <datalist id="model-options">
-            {selectedPreset.models.map((model) => (
-              <option key={model} value={model} />
+          <select
+            value={selectedModel}
+            disabled={!selectedProvider?.models.length}
+            onChange={(event) => onChange({ vendor: selectedVendor, model: event.target.value })}
+          >
+            {(selectedProvider?.models ?? []).map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
             ))}
-          </datalist>
+          </select>
         </label>
-        <label>
-          API Key
-          <input
-            type="password"
-            placeholder="留空则使用本地 mock"
-            value={provider.apiKey ?? ""}
-            onChange={(event) => onChange({ ...provider, apiKey: event.target.value })}
-          />
-        </label>
+        <div className="providerInfo">
+          <span>调用配置</span>
+          <code>{readyForRemote ? "由管理员统一提供" : "未配置时使用本地 mock"}</code>
+        </div>
       </div>
       <p className="fieldHint">
-        {usesMock
-          ? "这个模块独立管理 AI 调用配置；模型或 API Key 留空时，流水线使用本地 mock。"
-          : `流水线生成阶段将调用 ${selectedPreset.label} 的 ${provider.model} 模型。`}
+        用户端只选择可用服务商与模型；API Key 和兼容接口地址由管理员统一维护。
       </p>
+      <div className="quotaStrip">
+        <span>{usageQuota.plan} 额度</span>
+        <strong>{usageQuota.remainingRuns}</strong>
+        <small>
+          已用 {usageQuota.usedRuns} / {usageQuota.totalRuns} 次，{usageQuota.note}
+        </small>
+      </div>
     </section>
   );
 }
 
-function PricingPage() {
+function AdminProviderModule({
+  managedProviders,
+  onChange
+}: {
+  managedProviders: ManagedProviderConfig[];
+  onChange: (managedProviders: ManagedProviderConfig[]) => void;
+}) {
+  function updateProvider(index: number, patch: Partial<ManagedProviderConfig>) {
+    onChange(managedProviders.map((managedProvider, providerIndex) => (providerIndex === index ? { ...managedProvider, ...patch } : managedProvider)));
+  }
+
+  return (
+    <section className="panel adminProviderPanel">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h2>模型与 API 管理</h2>
+        </div>
+        <span className="moduleState active">管理员</span>
+      </div>
+      <p className="fieldHint">这里维护平台统一提供的模型服务。用户端不会看到 API Key，只会看到已启用服务商和模型。</p>
+      <div className="adminProviderList">
+        {managedProviders.map((managedProvider, index) => (
+          <article key={managedProvider.vendor} className="adminProviderCard">
+            <div className="sectionHeader">
+              <h3>{managedProvider.label}</h3>
+              <label className="inlineToggle">
+                <input
+                  type="checkbox"
+                  checked={managedProvider.enabled}
+                  onChange={(event) => updateProvider(index, { enabled: event.target.checked })}
+                />
+                启用
+              </label>
+            </div>
+            <div className="adminProviderGrid">
+              <label>
+                服务商名称
+                <input value={managedProvider.label} onChange={(event) => updateProvider(index, { label: event.target.value })} />
+              </label>
+              <label>
+                兼容接口地址
+                <input
+                  placeholder="https://api.example.com/v1"
+                  value={managedProvider.baseUrl}
+                  onChange={(event) => updateProvider(index, { baseUrl: event.target.value })}
+                />
+              </label>
+              <label>
+                API Key
+                <input
+                  type="password"
+                  placeholder="由管理员配置"
+                  value={managedProvider.apiKey}
+                  onChange={(event) => updateProvider(index, { apiKey: event.target.value })}
+                />
+              </label>
+              <label>
+                模型列表
+                <input
+                  placeholder="多个模型用英文逗号分隔"
+                  value={managedProvider.models.join(", ")}
+                  onChange={(event) =>
+                    updateProvider(index, {
+                      models: event.target.value
+                        .split(",")
+                        .map((model) => model.trim())
+                        .filter(Boolean)
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PricingPage({
+  provider,
+  managedProviders,
+  onProviderChange
+}: {
+  provider: ProviderConfig;
+  managedProviders: ManagedProviderConfig[];
+  onProviderChange: (provider: ProviderConfig) => void;
+}) {
   const packs = [
     { name: "轻量包", runs: "50 次", price: "¥29", note: "适合短篇试改和小规模验证" },
     { name: "创作包", runs: "200 次", price: "¥99", note: "适合连续章节和多版本改写" },
@@ -244,6 +369,8 @@ function PricingPage() {
 
   return (
     <div className="pricingPage">
+      <ProviderModule provider={provider} managedProviders={managedProviders} onChange={onProviderChange} />
+
       <section className="pricingHero">
         <div>
           <p className="eyebrow">会员服务</p>
@@ -352,48 +479,304 @@ function PricingPage() {
 }
 
 export default function Home() {
-  const [activeView, setActiveView] = useState<"input" | "chapters" | "result" | "schema" | "pricing">("input");
+  const [activeView, setActiveView] = useState<ActiveView>("workflow");
+  const [accounts, setAccounts] = useState<Account[]>(DEFAULT_ACCOUNTS);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [sessionAccountId, setSessionAccountId] = useState("");
+  const [loginUsername, setLoginUsername] = useState("admin");
+  const [loginPassword, setLoginPassword] = useState("admin123");
+  const [loginError, setLoginError] = useState("");
+  const [accountDraft, setAccountDraft] = useState<AccountDraft>(emptyAccountDraft);
+  const [editingAccountId, setEditingAccountId] = useState("");
+  const [workflowStarted, setWorkflowStarted] = useState(false);
+  const [workflowStep, setWorkflowStep] = useState<WorkflowStepId>("input");
+  const [inputSaved, setInputSaved] = useState(false);
+  const [chaptersSaved, setChaptersSaved] = useState(false);
+  const [resultSaved, setResultSaved] = useState(false);
   const [title, setTitle] = useState("雨夜旧案");
   const [author, setAuthor] = useState("原作者");
   const [text, setText] = useState(sampleText);
   const [provider, setProvider] = useState<ProviderConfig>({
-    vendor: "openai",
-    baseUrl: "https://api.openai.com/v1",
-    model: ""
+    vendor: defaultManagedProviders[0].vendor,
+    model: defaultManagedProviders[0].models[0]
   });
-  const [chapters, setChapters] = useState<Chapter[]>(() => splitChapters(sampleText));
+  const [managedProviders, setManagedProviders] = useState<ManagedProviderConfig[]>(defaultManagedProviders);
+  const [managedProvidersLoaded, setManagedProvidersLoaded] = useState(false);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
   const [manualChapters, setManualChapters] = useState("");
   const [result, setResult] = useState<PipelineResult | null>(null);
   const [yaml, setYaml] = useState("");
+  const [confirmedChapterIds, setConfirmedChapterIds] = useState<string[]>([]);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [isValid, setIsValid] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("准备就绪");
   const [error, setError] = useState("");
+  const [yamlVersions, setYamlVersions] = useState<SavedYamlVersion[]>([]);
+  const [yamlVersionsLoaded, setYamlVersionsLoaded] = useState(false);
+  const [selectedVersionId, setSelectedVersionId] = useState("");
+  const [versionDraft, setVersionDraft] = useState("");
+  const usageQuota = getUsageQuota();
+  const currentAccount = useMemo(
+    () => accounts.find((account) => account.id === sessionAccountId) ?? null,
+    [accounts, sessionAccountId]
+  );
+  const isAdmin = canManageUsers(currentAccount);
+
+  useEffect(() => {
+    const storedAccounts = parseAccounts(window.localStorage.getItem(ACCOUNTS_STORAGE_KEY));
+    setAccounts(storedAccounts);
+    setSessionAccountId(window.localStorage.getItem(SESSION_STORAGE_KEY) ?? "");
+    setAccountsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!accountsLoaded) return;
+    window.localStorage.setItem(ACCOUNTS_STORAGE_KEY, serializeAccounts(accounts));
+  }, [accounts, accountsLoaded]);
+
+  useEffect(() => {
+    if (!accountsLoaded) return;
+    if (sessionAccountId) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, sessionAccountId);
+    } else {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  }, [accountsLoaded, sessionAccountId]);
+
+  useEffect(() => {
+    if (!currentAccount && sessionAccountId) {
+      setSessionAccountId("");
+    }
+  }, [currentAccount, sessionAccountId]);
+
+  useEffect(() => {
+    setYamlVersions(parseYamlVersions(window.localStorage.getItem(YAML_HISTORY_STORAGE_KEY)));
+    setYamlVersionsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    setManagedProviders(parseManagedProviders(window.localStorage.getItem(MANAGED_PROVIDERS_STORAGE_KEY)));
+    setManagedProvidersLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!yamlVersionsLoaded) return;
+    window.localStorage.setItem(YAML_HISTORY_STORAGE_KEY, serializeYamlVersions(yamlVersions));
+  }, [yamlVersions, yamlVersionsLoaded]);
+
+  useEffect(() => {
+    if (!managedProvidersLoaded) return;
+    window.localStorage.setItem(MANAGED_PROVIDERS_STORAGE_KEY, serializeManagedProviders(managedProviders));
+  }, [managedProviders, managedProvidersLoaded]);
+
+  const workflowSteps = useMemo(
+    () =>
+      getWorkflowSteps({
+        started: workflowStarted,
+        inputSaved,
+        chaptersSaved,
+        hasResult: Boolean(result),
+        activeStep: workflowStep
+      }),
+    [chaptersSaved, inputSaved, result, workflowStarted, workflowStep]
+  );
 
   const completion = useMemo(() => {
-    if (result) return 100;
-    if (chapters.length >= 3) return 42;
-    if (text.trim()) return 24;
+    if (resultSaved) return 100;
+    if (result) return 90;
+    if (chapters.length > 0 && workflowStarted) return 66;
+    if (workflowStarted && text.trim()) return 33;
     return 8;
-  }, [chapters.length, result, text]);
+  }, [chapters.length, result, resultSaved, text, workflowStarted]);
+
+  const chapterReviewItems = useMemo(
+    () => (result ? buildChapterReviewItems(result.script, result.chapters) : []),
+    [result]
+  );
+
+  const selectedVersion = useMemo(
+    () => yamlVersions.find((version) => version.id === selectedVersionId) ?? yamlVersions[0] ?? null,
+    [selectedVersionId, yamlVersions]
+  );
+
+  const accountUsageRecords = useMemo(
+    () =>
+      accounts
+        .flatMap((account) =>
+          account.usageRecords.map((record) => ({
+            ...record,
+            username: account.username
+          }))
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [accounts]
+  );
+
+  useEffect(() => {
+    if (!selectedVersion) {
+      setSelectedVersionId("");
+      setVersionDraft("");
+      return;
+    }
+
+    setSelectedVersionId(selectedVersion.id);
+    setVersionDraft(selectedVersion.yaml);
+  }, [selectedVersion]);
+
+  const allChaptersConfirmed =
+    chapterReviewItems.length > 0 && chapterReviewItems.every((item) => confirmedChapterIds.includes(item.chapter.id));
+
+  function login() {
+    const account = authenticateAccount(accounts, loginUsername, loginPassword);
+    if (!account) {
+      setLoginError("用户名、密码错误，或账户已停用");
+      return;
+    }
+
+    setLoginError("");
+    setSessionAccountId(account.id);
+    setActiveView("workflow");
+    setStatus(`${account.role === "admin" ? "管理员" : "用户"} ${account.username} 已登录`);
+  }
+
+  function logout() {
+    setSessionAccountId("");
+    setActiveView("workflow");
+    setStatus("已退出登录");
+  }
+
+  function resetAccountForm() {
+    setEditingAccountId("");
+    setAccountDraft(emptyAccountDraft);
+  }
+
+  function saveAccount() {
+    if (!isAdmin) return;
+    if (editingAccountId) {
+      setAccounts((current) => updateAccount(current, editingAccountId, accountDraft));
+      setStatus(`用户 ${accountDraft.username} 已更新`);
+    } else {
+      setAccounts((current) => createAccount(current, accountDraft));
+      setStatus(`用户 ${accountDraft.username} 已创建`);
+    }
+    resetAccountForm();
+  }
+
+  function editAccount(account: Account) {
+    setEditingAccountId(account.id);
+    setAccountDraft({
+      username: account.username,
+      password: account.password,
+      role: account.role,
+      status: account.status
+    });
+  }
+
+  function removeAccount(account: Account) {
+    if (!isAdmin) return;
+    setAccounts((current) => deleteAccount(current, account.id));
+    if (sessionAccountId === account.id) {
+      setSessionAccountId("");
+    }
+    setStatus(`用户 ${account.username} 已删除`);
+  }
+
+  function saveProjectInput() {
+    if (!title.trim() || !text.trim()) {
+      setStatus("请先填写小说标题和正文");
+      return;
+    }
+    setInputSaved(true);
+    setChaptersSaved(false);
+    setResultSaved(false);
+    setStatus("项目输入已保存，可以进入章节解析");
+  }
 
   function parseChapters() {
     const parsed = splitChapters(text);
+    setWorkflowStarted(true);
     setChapters(parsed);
+    setChaptersSaved(false);
+    setResult(null);
+    setYaml("");
+    setConfirmedChapterIds([]);
+    setIssues([]);
+    setIsValid(false);
     setManualChapters(
       parsed
         .map((chapter) => `${chapter.title}\n${chapter.text}`)
         .join("\n\n---\n\n")
     );
-    setActiveView("chapters");
+    setWorkflowStep("chapters");
     setStatus(parsed.length >= 3 ? `已识别 ${parsed.length} 个章节` : "章节少于 3 个，仍可演示生成");
   }
 
   function applyManualChapters() {
     const parsed = chaptersFromManualText(manualChapters);
     setChapters(parsed);
-    setStatus(`已应用 ${parsed.length} 个手动章节`);
+    setChaptersSaved(true);
+    setResultSaved(false);
+    setStatus(`章节解析已保存，共 ${parsed.length} 个章节`);
+  }
+
+  function saveResult() {
+    if (!yaml || !allChaptersConfirmed) return;
+
+    const version = createYamlVersion({
+      yaml,
+      projectTitle: title,
+      valid: isValid,
+      issueCount: issues.length
+    });
+
+    setYamlVersions((current) => addYamlVersion(current, version));
+    setSelectedVersionId(version.id);
+    setVersionDraft(version.yaml);
+    setResultSaved(true);
+    setStatus(`改编结果已保存为 ${formatVersionTime(version.createdAt)} 的版本`);
+  }
+
+  function restoreYamlVersion(version: SavedYamlVersion) {
+    setYaml(version.yaml);
+    setIsValid(version.valid);
+    setIssues([]);
+    setActiveView("workflow");
+    setWorkflowStarted(true);
+    setWorkflowStep("result");
+    setResultSaved(true);
+    setStatus(`已回溯到 ${formatVersionTime(version.createdAt)} 的 YAML 版本`);
+  }
+
+  function selectYamlVersion(version: SavedYamlVersion) {
+    setSelectedVersionId(version.id);
+    setVersionDraft(version.yaml);
+  }
+
+  function saveVersionEdit() {
+    if (!selectedVersion) return;
+
+    setYamlVersions((current) => updateYamlVersionContent(current, selectedVersion.id, versionDraft));
+    setStatus(`已保存 ${formatVersionTime(selectedVersion.createdAt)} 的版本编辑`);
+  }
+
+  function deleteVersion(version: SavedYamlVersion) {
+    setYamlVersions((current) => deleteYamlVersion(current, version.id));
+    if (selectedVersionId === version.id) {
+      const nextVersion = yamlVersions.find((item) => item.id !== version.id);
+      setSelectedVersionId(nextVersion?.id ?? "");
+      setVersionDraft(nextVersion?.yaml ?? "");
+    }
+    setStatus(`已删除 ${formatVersionTime(version.createdAt)} 的版本`);
+  }
+
+  function confirmChapterMerge(chapterId: string) {
+    setConfirmedChapterIds((current) => {
+      if (current.includes(chapterId)) return current;
+      const next = [...current, chapterId];
+      setStatus(next.length === chapterReviewItems.length ? "章节 YAML 已全部确认，可以保存合并结果" : "章节 YAML 已确认");
+      return next;
+    });
   }
 
   async function runGeneration() {
@@ -401,6 +784,7 @@ export default function Home() {
     setError("");
     setStatus("正在执行章节理解、故事建模和场景生成");
     try {
+      const resolvedProvider = resolveProviderConfig(provider, managedProviders);
       const response = await fetch("/api/pipeline/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -409,16 +793,28 @@ export default function Home() {
           author,
           text,
           chapters,
-          provider
+          provider: resolvedProvider
         })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "生成失败");
       setResult(payload);
       setYaml(payload.yaml);
+      setConfirmedChapterIds([]);
       setIssues(payload.validation.issues);
       setIsValid(payload.validation.valid);
-      setActiveView("result");
+      setResultSaved(false);
+      if (currentAccount) {
+        const usesRemoteProvider = Boolean(resolvedProvider.apiKey && resolvedProvider.model);
+        setAccounts((current) =>
+          recordAccountUsage(current, currentAccount.id, {
+            action: "生成改编结果",
+            cost: usesRemoteProvider ? 1 : 0,
+            note: usesRemoteProvider ? "真实 LLM 调用，扣除 1 次" : "本地 mock 生成，不扣次数"
+          })
+        );
+      }
+      setWorkflowStep("result");
       setStatus(payload.validation.valid ? "生成完成，YAML 已通过校验" : "生成完成，但需要修复校验问题");
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : "生成失败");
@@ -478,7 +874,96 @@ export default function Home() {
     if (!file) return;
     const content = await file.text();
     setText(content);
+    setInputSaved(false);
     setStatus(`已读取文件：${file.name}`);
+  }
+
+  function renderWorkflowActions() {
+    if (!workflowStarted) return null;
+
+    if (workflowStep === "input") {
+      return (
+        <div className="workflowActions">
+          <button className="ghostButton" onClick={saveProjectInput}>
+            保存
+          </button>
+          <button className="ghostButton" disabled>
+            上一步
+          </button>
+          <button className="primaryButton" onClick={parseChapters} disabled={!inputSaved}>
+            下一步
+          </button>
+        </div>
+      );
+    }
+
+    if (workflowStep === "chapters") {
+      return (
+        <div className="workflowActions">
+          <button className="ghostButton" onClick={applyManualChapters}>
+            保存
+          </button>
+          <button className="ghostButton" onClick={() => setWorkflowStep("input")}>
+            上一步
+          </button>
+          <button className="primaryButton" onClick={runGeneration} disabled={!chaptersSaved || loading}>
+            <Wand2 size={18} />
+            {loading ? "生成中" : "下一步"}
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="workflowActions">
+        <button className="ghostButton" onClick={saveResult} disabled={!yaml || !allChaptersConfirmed}>
+          保存
+        </button>
+        <button className="ghostButton" onClick={() => setWorkflowStep("chapters")}>
+          上一步
+        </button>
+        <button className="primaryButton" disabled>
+          下一步
+        </button>
+      </div>
+    );
+  }
+
+  if (!currentAccount) {
+    return (
+      <main className="loginShell">
+        <section className="loginPanel panel">
+          <div className="loginBrand">
+            <Wand2 size={32} />
+            <div>
+              <strong>ScriptForge</strong>
+              <span>AI 改编流水线账户登录</span>
+            </div>
+          </div>
+          <div>
+            <p className="eyebrow">Account Access</p>
+            <h1>登录后进入工作台</h1>
+            <p>管理员可管理用户账户，普通用户只能进入改编工作流。</p>
+          </div>
+          <label>
+            用户名
+            <input value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} />
+          </label>
+          <label>
+            密码
+            <input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} />
+          </label>
+          {loginError ? <div className="errorBanner">{loginError}</div> : null}
+          <button className="primaryButton" onClick={login}>
+            登录
+          </button>
+          <div className="loginHints">
+            <span>管理员：admin / admin123</span>
+            <span>用户：user / user123</span>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -494,10 +979,10 @@ export default function Home() {
           </div>
           <nav className="nav">
             {[
-              ["input", "项目输入"],
-              ["chapters", "章节解析"],
-              ["result", "改编结果"],
               ["schema", "Schema 文档"],
+              ["workflow", "我的项目"],
+              ["versions", "保存版本"],
+              ...(isAdmin ? [["users", "用户管理"]] : []),
               ["pricing", "会员服务"]
             ].map(([id, label]) => (
               <button
@@ -509,6 +994,15 @@ export default function Home() {
               </button>
             ))}
           </nav>
+          <div className="accountCard">
+            <div>
+              <span>{currentAccount.role === "admin" ? "管理员" : "用户"}</span>
+              <strong>{currentAccount.username}</strong>
+            </div>
+            <button className="iconButton" title="退出登录" onClick={logout}>
+              <LogOut size={16} />
+            </button>
+          </div>
         </div>
         <div className="pipelineStatus">
           <div className="progressLabel">
@@ -536,17 +1030,85 @@ export default function Home() {
 
         {error ? <div className="errorBanner">{error}</div> : null}
 
-        {activeView === "input" ? (
+        {activeView === "workflow" ? (
+          <section className="panel workflowPanel">
+            <div className="workflowLead">
+              <div>
+                <p className="eyebrow">改编流程</p>
+                <h2>从项目输入到改编结果，一次走完</h2>
+                <p>客户点击开始后，按项目输入、章节解析、改编结果三个步骤完成小说改编。</p>
+              </div>
+              <div className="workflowLeadActions">
+                <div className="workflowQuota" aria-label={`剩余 ${usageQuota.remainingRuns} 次生成`}>
+                  <span>{usageQuota.plan} 额度</span>
+                  <strong>剩余 {usageQuota.remainingRuns} 次</strong>
+                  <small>{usageQuota.note}</small>
+                </div>
+                {!workflowStarted ? (
+                  <button
+                    className="primaryButton"
+                    onClick={() => {
+                      setWorkflowStarted(true);
+                      setWorkflowStep("input");
+                      setStatus("已开始，请完成项目输入");
+                    }}
+                  >
+                    <Play size={18} />
+                    开始
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {workflowStarted ? (
+              <div className="workflowSteps">
+                {workflowSteps.map((step, index) => (
+                  <article
+                    key={step.id}
+                    className={`workflowStep ${step.active ? "active" : ""} ${step.available ? "" : "locked"}`}
+                  >
+                    <span>{index + 1}</span>
+                    <strong>{step.label}</strong>
+                    <small>{step.description}</small>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+            {renderWorkflowActions()}
+          </section>
+        ) : null}
+
+        {activeView === "workflow" && !workflowStarted ? (
+          <section className="panel startPanel">
+            <div>
+              <h2>准备创建一个改编项目</h2>
+              <p>开始后会先进入项目输入，完成小说文本和模型配置；随后解析章节，最后生成可校验、可导出的 YAML 改编结果。</p>
+            </div>
+          </section>
+        ) : null}
+
+        {activeView === "workflow" && workflowStarted && workflowStep === "input" ? (
           <div className="inputStack">
             <div className="panel inputGrid">
               <section className="formColumn">
                 <label>
                   小说标题
-                  <input value={title} onChange={(event) => setTitle(event.target.value)} />
+                  <input
+                    value={title}
+                    onChange={(event) => {
+                      setTitle(event.target.value);
+                      setInputSaved(false);
+                    }}
+                  />
                 </label>
                 <label>
                   作者
-                  <input value={author} onChange={(event) => setAuthor(event.target.value)} />
+                  <input
+                    value={author}
+                    onChange={(event) => {
+                      setAuthor(event.target.value);
+                      setInputSaved(false);
+                    }}
+                  />
                 </label>
                 <div className="buttonRow">
                   <label className="iconButton fileButton" title="上传 txt 或 md 文件">
@@ -557,32 +1119,30 @@ export default function Home() {
                       onChange={(event) => handleFile(event.target.files?.[0])}
                     />
                   </label>
-                  <button className="primaryButton" onClick={parseChapters}>
-                    <Play size={18} />
-                    解析章节
-                  </button>
                 </div>
               </section>
               <section className="editorColumn">
                 <label>
                   小说文本
-                  <textarea value={text} onChange={(event) => setText(event.target.value)} />
+                  <textarea
+                    value={text}
+                    onChange={(event) => {
+                      setText(event.target.value);
+                      setInputSaved(false);
+                    }}
+                  />
                 </label>
               </section>
             </div>
-            <ProviderModule provider={provider} onChange={setProvider} />
           </div>
         ) : null}
 
-        {activeView === "chapters" ? (
-          <div className="panel chapterLayout">
+        {activeView === "workflow" && workflowStarted && workflowStep === "chapters" ? (
+          <div className="chapterStepStack">
+            <div className="panel chapterLayout">
             <section>
               <div className="sectionHeader">
                 <h2>识别到的章节</h2>
-                <button className="primaryButton" onClick={runGeneration} disabled={loading}>
-                  <Wand2 size={18} />
-                  {loading ? "生成中" : "生成改编"}
-                </button>
               </div>
               <div className="chapterList">
                 {chapters.map((chapter) => (
@@ -599,49 +1159,77 @@ export default function Home() {
             <section>
               <div className="sectionHeader">
                 <h2>手动章节边界</h2>
-                <button className="ghostButton" onClick={applyManualChapters}>
-                  应用调整
-                </button>
               </div>
               <textarea
                 className="manualEditor"
                 value={manualChapters}
-                onChange={(event) => setManualChapters(event.target.value)}
+                onChange={(event) => {
+                  setManualChapters(event.target.value);
+                  setChaptersSaved(false);
+                }}
                 placeholder="每章之间使用单独一行 --- 分隔"
               />
             </section>
+            </div>
           </div>
         ) : null}
 
-        {activeView === "result" ? (
-          <div className="resultLayout">
-            <section className="panel summaryPane">
+        {activeView === "workflow" && workflowStarted && workflowStep === "result" ? (
+          <div className="resultStepStack">
+            <section className="panel chapterReviewPanel">
               <div className="sectionHeader">
-                <h2>章节理解</h2>
+                <h2>章节理解与剧本 YAML 对照</h2>
                 <FileText size={18} />
               </div>
-              {result?.chapters.map((chapter) => (
-                <details key={chapter.id} open>
-                  <summary>
-                    <span>{chapter.id}</span>
-                    {chapter.title}
-                  </summary>
-                  <p>{chapter.summary}</p>
-                  <dl>
-                    <dt>人物</dt>
-                    <dd>{chapter.main_characters?.join("、")}</dd>
-                    <dt>地点</dt>
-                    <dd>{chapter.locations?.join("、")}</dd>
-                    <dt>事件</dt>
-                    <dd>{chapter.key_events?.join("；")}</dd>
-                  </dl>
-                </details>
-              ))}
+              <div className="chapterReviewList">
+                {chapterReviewItems.map((item) => {
+                  const confirmed = confirmedChapterIds.includes(item.chapter.id);
+                  return (
+                    <article key={item.chapter.id} className={`chapterReviewCard ${confirmed ? "confirmed" : ""}`}>
+                      <div className="chapterUnderstanding">
+                        <div className="sectionHeader">
+                          <h3>
+                            <span>{item.chapter.id}</span>
+                            {item.chapter.title}
+                          </h3>
+                          <span className={`moduleState ${confirmed ? "active" : ""}`}>
+                            {confirmed ? "已确认" : "待确认"}
+                          </span>
+                        </div>
+                        <p>{item.chapter.summary}</p>
+                        <dl>
+                          <dt>人物</dt>
+                          <dd>{item.chapter.main_characters?.join("、") || "未识别"}</dd>
+                          <dt>地点</dt>
+                          <dd>{item.chapter.locations?.join("、") || "未识别"}</dd>
+                          <dt>事件</dt>
+                          <dd>{item.chapter.key_events?.join("；") || "未识别"}</dd>
+                        </dl>
+                      </div>
+                      <div className="chapterYamlBlock">
+                        <pre>{item.yaml}</pre>
+                        <button className="ghostButton" onClick={() => confirmChapterMerge(item.chapter.id)} disabled={confirmed}>
+                          {confirmed ? "已合并" : "确认并合并"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
             </section>
-            <section className="panel yamlPane">
+
+            <section className="panel yamlPane mergedYamlPane">
               <div className="sectionHeader">
-                <h2>剧本 YAML</h2>
+                <h2>合并后的剧本 YAML</h2>
                 <div className="toolbar">
+                  <button
+                    className="iconButton"
+                    title="保存合并 YAML"
+                    onClick={saveResult}
+                    disabled={!yaml || !allChaptersConfirmed}
+                  >
+                    <Save size={18} />
+                  </button>
                   <button className="iconButton" title="校验 YAML" onClick={validateYaml} disabled={loading}>
                     <CheckCircle2 size={18} />
                   </button>
@@ -669,10 +1257,237 @@ export default function Home() {
                   </button>
                 </div>
               </div>
-              <textarea className="yamlEditor" value={yaml} onChange={(event) => setYaml(event.target.value)} />
+              <textarea
+                className="yamlEditor"
+                value={yaml}
+                onChange={(event) => {
+                  setYaml(event.target.value);
+                  setResultSaved(false);
+                }}
+              />
               <div className={`validationBox ${isValid ? "ok" : ""}`}>
                 <strong>{isValid ? "YAML 已通过 Schema 与引用校验" : "校验问题"}</strong>
                 <IssueList issues={issues} />
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {activeView === "versions" ? (
+          <div className="versionsPage">
+            <section className="panel versionLibrary">
+              <div className="sectionHeader">
+                <div>
+                  <p className="eyebrow">保存版本</p>
+                  <h2>YAML 版本库</h2>
+                  <p>系统内保留最近 {YAML_VERSION_LIMIT} 次合并后的 YAML，可编辑，也可回溯到改编结果。</p>
+                </div>
+                <span className={`moduleState ${yamlVersions.length > 0 ? "active" : ""}`}>
+                  {yamlVersions.length} 个版本
+                </span>
+              </div>
+
+              {yamlVersions.length > 0 ? (
+                <div className="versionList">
+                  {yamlVersions.map((version) => (
+                    <article
+                      key={version.id}
+                      className={`versionItem versionSelect ${selectedVersion?.id === version.id ? "active" : ""}`}
+                    >
+                      <button className="versionPickButton" onClick={() => selectYamlVersion(version)}>
+                        <History size={16} />
+                        <div>
+                          <strong>{formatVersionTime(version.createdAt)}</strong>
+                          <small>
+                            {version.projectTitle} · {version.valid ? "校验通过" : `${version.issueCount} 个问题`} ·{" "}
+                            {version.size} 字符
+                          </small>
+                        </div>
+                      </button>
+                      <button className="iconButton dangerButton" title="删除版本" onClick={() => deleteVersion(version)}>
+                        <Trash2 size={16} />
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="emptyState">在“我的项目”的合并 YAML 区点击保存后，这里会出现可编辑版本。</p>
+              )}
+            </section>
+
+            <section className="panel versionEditorPane">
+              <div className="sectionHeader">
+                <div>
+                  <p className="eyebrow">版本编辑</p>
+                  <h2>{selectedVersion ? formatVersionTime(selectedVersion.createdAt) : "暂无版本"}</h2>
+                </div>
+                <div className="toolbar">
+                  <button className="ghostButton" onClick={saveVersionEdit} disabled={!selectedVersion}>
+                    <Save size={16} />
+                    保存编辑
+                  </button>
+                  <button
+                    className="ghostButton"
+                    onClick={() => selectedVersion && restoreYamlVersion(selectedVersion)}
+                    disabled={!selectedVersion}
+                  >
+                    <RotateCcw size={16} />
+                    回溯
+                  </button>
+                </div>
+              </div>
+
+              <textarea
+                className="yamlEditor versionEditor"
+                value={versionDraft}
+                onChange={(event) => setVersionDraft(event.target.value)}
+                disabled={!selectedVersion}
+                placeholder="选择左侧版本后编辑 YAML"
+              />
+              {selectedVersion ? (
+                <div className={`validationBox ${selectedVersion.valid ? "ok" : ""}`}>
+                  <strong>{selectedVersion.valid ? "保存时已通过校验" : "保存时存在校验问题"}</strong>
+                  <p className="compact">
+                    {selectedVersion.projectTitle} · {selectedVersion.size} 字符 · 保存于{" "}
+                    {formatVersionTime(selectedVersion.createdAt)}
+                  </p>
+                </div>
+              ) : (
+                <p className="emptyState">暂无可编辑版本。先在改编结果里保存合并后的 YAML。</p>
+              )}
+            </section>
+          </div>
+        ) : null}
+
+        {activeView === "users" && isAdmin ? (
+          <div className="usersPage">
+            <section className="panel userFormPanel">
+              <div className="sectionHeader">
+                <div>
+                  <p className="eyebrow">Admin</p>
+                  <h2>{editingAccountId ? "编辑用户" : "新增用户"}</h2>
+                </div>
+                <UserCog size={18} />
+              </div>
+              <label>
+                用户名
+                <input
+                  value={accountDraft.username}
+                  onChange={(event) => setAccountDraft((current) => ({ ...current, username: event.target.value }))}
+                />
+              </label>
+              <label>
+                密码
+                <input
+                  value={accountDraft.password}
+                  onChange={(event) => setAccountDraft((current) => ({ ...current, password: event.target.value }))}
+                />
+              </label>
+              <div className="accountFormGrid">
+                <label>
+                  角色
+                  <select
+                    value={accountDraft.role}
+                    onChange={(event) =>
+                      setAccountDraft((current) => ({ ...current, role: event.target.value as AccountDraft["role"] }))
+                    }
+                  >
+                    <option value="admin">管理员</option>
+                    <option value="user">用户</option>
+                  </select>
+                </label>
+                <label>
+                  状态
+                  <select
+                    value={accountDraft.status}
+                    onChange={(event) =>
+                      setAccountDraft((current) => ({
+                        ...current,
+                        status: event.target.value as AccountDraft["status"]
+                      }))
+                    }
+                  >
+                    <option value="active">启用</option>
+                    <option value="disabled">停用</option>
+                  </select>
+                </label>
+              </div>
+              <div className="buttonRow">
+                <button className="primaryButton" onClick={saveAccount}>
+                  {editingAccountId ? "保存修改" : "创建用户"}
+                </button>
+                <button className="ghostButton" onClick={resetAccountForm}>
+                  清空
+                </button>
+              </div>
+            </section>
+
+            <AdminProviderModule managedProviders={managedProviders} onChange={setManagedProviders} />
+
+            <section className="panel userTablePanel">
+              <div className="sectionHeader">
+                <div>
+                  <p className="eyebrow">Users</p>
+                  <h2>用户管理</h2>
+                </div>
+                <span className="moduleState active">{accounts.length} 个账户</span>
+              </div>
+              <div className="accountTable">
+                <div className="accountTableHead">
+                  <span>用户名</span>
+                  <span>角色</span>
+                  <span>状态</span>
+                  <span>剩余次数</span>
+                  <span>已用次数</span>
+                  <span>创建时间</span>
+                  <span>操作</span>
+                </div>
+                {accounts.map((account) => (
+                  <div key={account.id} className="accountTableRow">
+                    <strong>{account.username}</strong>
+                    <span>{account.role === "admin" ? "管理员" : "用户"}</span>
+                    <span className={`moduleState ${account.status === "active" ? "active" : ""}`}>
+                      {account.status === "active" ? "启用" : "停用"}
+                    </span>
+                    <strong>{getRemainingRuns(account)} 次</strong>
+                    <span>{account.quota.usedRuns} / {account.quota.totalRuns}</span>
+                    <span>{formatVersionTime(account.createdAt)}</span>
+                    <div className="tableActions">
+                      <button className="ghostButton" onClick={() => editAccount(account)}>
+                        编辑
+                      </button>
+                      <button className="iconButton dangerButton" title="删除用户" onClick={() => removeAccount(account)}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="usageLogPanel">
+                <div className="sectionHeader">
+                  <div>
+                    <p className="eyebrow">Usage Log</p>
+                    <h3>使用记录</h3>
+                  </div>
+                  <span className={`moduleState ${accountUsageRecords.length > 0 ? "active" : ""}`}>
+                    {accountUsageRecords.length} 条记录
+                  </span>
+                </div>
+                {accountUsageRecords.length > 0 ? (
+                  <div className="usageLogList">
+                    {accountUsageRecords.slice(0, 8).map((record) => (
+                      <article key={record.id} className="usageLogItem">
+                        <strong>{record.username}</strong>
+                        <span>{record.action}</span>
+                        <span>{record.cost > 0 ? `扣 ${record.cost} 次` : "不扣次数"}</span>
+                        <span>{formatVersionTime(record.createdAt)}</span>
+                        <small>{record.note}</small>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="emptyState">用户完成生成后，这里会记录使用时间、操作和扣次情况。</p>
+                )}
               </div>
             </section>
           </div>
@@ -705,7 +1520,9 @@ export default function Home() {
           </div>
         ) : null}
 
-        {activeView === "pricing" ? <PricingPage /> : null}
+        {activeView === "pricing" ? (
+          <PricingPage provider={provider} managedProviders={managedProviders} onProviderChange={setProvider} />
+        ) : null}
       </section>
     </main>
   );

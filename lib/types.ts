@@ -91,10 +91,19 @@ export type ValidationIssue = {
 };
 
 export type ProviderConfig = {
-  vendor?: "openai" | "deepseek" | "tongyi" | "custom";
+  vendor?: "mock" | "openai" | "deepseek" | "tongyi" | "custom";
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+};
+
+export type ManagedProviderConfig = {
+  vendor: Exclude<ProviderConfig["vendor"], "mock" | undefined>;
+  label: string;
+  baseUrl: string;
+  apiKey: string;
+  models: string[];
+  enabled: boolean;
 };
 
 export type PipelineInput = {
