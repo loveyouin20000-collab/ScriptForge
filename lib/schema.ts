@@ -18,6 +18,53 @@ const conflictSchema = z.object({
   related_timeline: z.array(z.number().int().min(1))
 });
 
+const storyStructureSchema = z.object({
+  premise: z.string().min(1),
+  genre: z.string().min(1),
+  logline: z.string().min(1),
+  theme: z.string().min(1),
+  main_conflict: z.string().min(1),
+  dramatic_question: z.string().min(1),
+  acts: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        purpose: z.string().min(1),
+        source_chapters: z.array(z.string().min(1)).min(1),
+        key_events: z.array(z.string().min(1)).min(1)
+      })
+    )
+    .min(1),
+  conflicts: z.array(
+    z.object({
+      id: z.string().min(1),
+      type: z.enum(["external", "internal", "relationship", "social", "mystery"]),
+      description: z.string().min(1),
+      characters: z.array(z.string().min(1)).min(1),
+      source_chapters: z.array(z.string().min(1)).min(1),
+      status: z.enum(["active", "resolved", "latent"])
+    })
+  ),
+  turning_points: z.array(
+    z.object({
+      id: z.string().min(1),
+      source_chapter: z.string().min(1),
+      event: z.string().min(1),
+      impact: z.string().min(1)
+    })
+  ),
+  character_arcs: z.array(
+    z.object({
+      character: z.string().min(1),
+      start_state: z.string().min(1),
+      desire: z.string().min(1),
+      obstacle: z.string().min(1),
+      end_state: z.string().min(1)
+    })
+  )
+});
+
 export const scriptYamlSchema = z.object({
   metadata: z.object({
     title: z.string().min(1),
@@ -66,6 +113,7 @@ export const scriptYamlSchema = z.object({
     })
   ),
   conflicts: z.array(conflictSchema),
+  story_structure: storyStructureSchema.optional(),
   scenes: z.array(
     z.object({
       id: z.string().min(1),
@@ -201,6 +249,55 @@ export function validateScriptYaml(input: unknown): {
         });
       }
     });
+  });
+
+  data.story_structure?.acts.forEach((act, actIndex) => {
+    act.source_chapters.forEach((chapterId, chapterIndex) => {
+      if (!chapterIds.has(chapterId)) {
+        issues.push({
+          path: `story_structure.acts.${actIndex}.source_chapters.${chapterIndex}`,
+          message: `引用了不存在的章节 ${chapterId}`
+        });
+      }
+    });
+  });
+
+  data.story_structure?.conflicts.forEach((conflict, conflictIndex) => {
+    conflict.characters.forEach((characterId, characterIndex) => {
+      if (!characterIds.has(characterId)) {
+        issues.push({
+          path: `story_structure.conflicts.${conflictIndex}.characters.${characterIndex}`,
+          message: `引用了不存在的人物 ${characterId}`
+        });
+      }
+    });
+
+    conflict.source_chapters.forEach((chapterId, chapterIndex) => {
+      if (!chapterIds.has(chapterId)) {
+        issues.push({
+          path: `story_structure.conflicts.${conflictIndex}.source_chapters.${chapterIndex}`,
+          message: `引用了不存在的章节 ${chapterId}`
+        });
+      }
+    });
+  });
+
+  data.story_structure?.turning_points.forEach((turningPoint, turningPointIndex) => {
+    if (!chapterIds.has(turningPoint.source_chapter)) {
+      issues.push({
+        path: `story_structure.turning_points.${turningPointIndex}.source_chapter`,
+        message: `引用了不存在的章节 ${turningPoint.source_chapter}`
+      });
+    }
+  });
+
+  data.story_structure?.character_arcs.forEach((arc, arcIndex) => {
+    if (!characterIds.has(arc.character)) {
+      issues.push({
+        path: `story_structure.character_arcs.${arcIndex}.character`,
+        message: `引用了不存在的人物 ${arc.character}`
+      });
+    }
   });
 
   data.scenes.forEach((scene, sceneIndex) => {

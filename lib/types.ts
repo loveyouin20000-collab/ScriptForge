@@ -50,6 +50,51 @@ export type Conflict = {
   related_timeline: number[];
 };
 
+export type StoryAct = {
+  id: string;
+  name: string;
+  purpose: string;
+  source_chapters: string[];
+  key_events: string[];
+};
+
+export type StoryConflict = {
+  id: string;
+  type: "external" | "internal" | "relationship" | "social" | "mystery";
+  description: string;
+  characters: string[];
+  source_chapters: string[];
+  status: "active" | "resolved" | "latent";
+};
+
+export type TurningPoint = {
+  id: string;
+  source_chapter: string;
+  event: string;
+  impact: string;
+};
+
+export type CharacterArc = {
+  character: string;
+  start_state: string;
+  desire: string;
+  obstacle: string;
+  end_state: string;
+};
+
+export type StoryStructure = {
+  premise: string;
+  genre: string;
+  logline: string;
+  theme: string;
+  main_conflict: string;
+  dramatic_question: string;
+  acts: StoryAct[];
+  conflicts: StoryConflict[];
+  turning_points: TurningPoint[];
+  character_arcs: CharacterArc[];
+};
+
 export type ScriptLine =
   | {
       type: "action" | "transition";
@@ -99,6 +144,7 @@ export type ScriptYaml = {
   locations: Location[];
   timeline: TimelineItem[];
   conflicts: Conflict[];
+  story_structure?: StoryStructure;
   scenes: Scene[];
 };
 
