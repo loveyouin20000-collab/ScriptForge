@@ -128,4 +128,21 @@ describe("buildChapterReviewItems", () => {
     expect(items[1].yaml).not.toContain("conflict_001");
     expect(items[1].yaml).not.toContain("scene_001");
   });
+
+  it("keeps rendering when runtime conflict chapter links are missing", () => {
+    const invalidScript = {
+      ...script,
+      conflicts: [
+        {
+          ...script.conflicts[0],
+          source_chapters: undefined,
+          related_timeline: undefined
+        }
+      ]
+    } as unknown as ScriptYaml;
+
+    const items = buildChapterReviewItems(invalidScript, [chapters[0]]);
+
+    expect(items[0].yaml).toContain("conflict_001");
+  });
 });
