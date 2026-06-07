@@ -509,37 +509,12 @@ function AdminProviderModule({
               </label>
               <label>
                 API Key
-                <div className="apiKeyControl">
-                  <input
-                    type="password"
-                    placeholder={managedProvider.apiKey ? "API Key 已保存，删除后可重新添加" : "输入 API Key 后点击保存"}
-                    value={managedProvider.apiKey ? "••••••••••••" : apiKeyDrafts[managedProvider.vendor] ?? ""}
-                    disabled={Boolean(managedProvider.apiKey)}
-                    onChange={(event) =>
-                      setApiKeyDrafts((current) => ({
-                        ...current,
-                        [managedProvider.vendor]: event.target.value
-                      }))
-                    }
-                  />
-                  {managedProvider.apiKey ? (
-                    <button className="ghostButton dangerButton" type="button" onClick={() => deleteApiKey(managedProvider)}>
-                      删除
-                    </button>
-                  ) : (
-                    <button
-                      className="ghostButton"
-                      type="button"
-                      onClick={() => saveApiKey(managedProvider)}
-                      disabled={!apiKeyDrafts[managedProvider.vendor]?.trim()}
-                    >
-                      保存
-                    </button>
-                  )}
-                </div>
-                <small className="secretHint">
-                  API Key 仅保存在本机浏览器 localStorage，不会写入源码或提交到 GitHub。
-                </small>
+                <input
+                  type="password"
+                  placeholder="由管理员配置"
+                  value={managedProvider.apiKey}
+                  onChange={(event) => updateProvider(index, { apiKey: event.target.value })}
+                />
               </label>
               <label>
                 模型列表
@@ -557,6 +532,40 @@ function AdminProviderModule({
                 />
               </label>
             </div>
+            <label className="adminApiKeyControl">
+              API Key
+              <div className="apiKeyControl">
+                <input
+                  type="password"
+                  placeholder={managedProvider.apiKey ? "API Key 已保存，删除后可重新添加" : "输入 API Key 后点击保存"}
+                  value={managedProvider.apiKey ? "••••••••••••" : apiKeyDrafts[managedProvider.vendor] ?? ""}
+                  disabled={Boolean(managedProvider.apiKey)}
+                  onChange={(event) =>
+                    setApiKeyDrafts((current) => ({
+                      ...current,
+                      [managedProvider.vendor]: event.target.value
+                    }))
+                  }
+                />
+                {managedProvider.apiKey ? (
+                  <button className="ghostButton dangerButton" type="button" onClick={() => deleteApiKey(managedProvider)}>
+                    删除
+                  </button>
+                ) : (
+                  <button
+                    className="ghostButton"
+                    type="button"
+                    onClick={() => saveApiKey(managedProvider)}
+                    disabled={!apiKeyDrafts[managedProvider.vendor]?.trim()}
+                  >
+                    保存
+                  </button>
+                )}
+              </div>
+              <small className="secretHint">
+                API Key 仅保存在本机浏览器 localStorage，不会写入源码或提交到 GitHub。
+              </small>
+            </label>
           </article>
         ))}
       </div>

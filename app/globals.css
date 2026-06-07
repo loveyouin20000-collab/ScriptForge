@@ -605,6 +605,14 @@ textarea:focus {
   gap: 14px;
 }
 
+.adminProviderGrid > label:nth-child(3) {
+  display: none;
+}
+
+.adminApiKeyControl {
+  margin-top: 14px;
+}
+
 .apiKeyControl {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

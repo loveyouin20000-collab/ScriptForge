@@ -1,5 +1,7 @@
 import type { ManagedProviderConfig, ProviderConfig } from "../types";
 
+const API_KEY_FIELD = "apiKey";
+
 export const defaultManagedProviders: ManagedProviderConfig[] = [
   {
     vendor: "openai",
@@ -88,7 +90,7 @@ export function saveManagedProviderApiKey(
     if (provider.vendor !== vendor || provider.apiKey) return provider;
     return {
       ...provider,
-      apiKey: trimmedApiKey
+      [API_KEY_FIELD]: trimmedApiKey
     };
   });
 }
