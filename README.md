@@ -53,6 +53,12 @@ https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3
 | 远程章节解析失败兜底 | 已实现，DeepSeek/OpenAI-compatible 调用失败时回退本地章节规则并提示用户 |
 | API Key 安全提示 | 已实现，API Key 仅保存在浏览器 localStorage，不写入源码或提交到 GitHub |
 
+## 详细文档
+
+- [会员服务设计](docs/membership-service-design.md)：商业化方案、生成次数规则和服务商配置关系。
+- [本地运行与发布](docs/local-run-and-release.md)：本地启动、服务重启、验证命令和 tag 发布流程。
+- [环境与规划](docs/environment-and-branches.md)：已知环境说明、分支规划和分支使用规则。
+
 ## AI 服务商配置
 
 大模型服务商模块独立于小说输入和流水线本身。管理员统一维护服务商、兼容接口地址、模型列表和 API Key；普通用户只选择已启用的服务商与模型。
