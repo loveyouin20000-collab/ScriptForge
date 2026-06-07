@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { validationErrorMessage } from "@/lib/apiErrors";
 import { validateScriptYaml } from "@/lib/schema";
 import type { ScriptYaml } from "@/lib/types";
 import { defaultMockVideoProvider } from "@/lib/video/mockProvider";
@@ -13,7 +14,13 @@ export async function POST(request: Request) {
     const parsed = fromYaml(body.yaml) as ScriptYaml;
     const inputValidation = validateScriptYaml(parsed);
     if (!inputValidation.valid || !inputValidation.data) {
-      return NextResponse.json(inputValidation, { status: 400 });
+      return NextResponse.json(
+        {
+          ...inputValidation,
+          error: validationErrorMessage(inputValidation.issues)
+        },
+        { status: 400 }
+      );
     }
 
     const scriptWithPrompts = inputValidation.data.video_prompts?.length

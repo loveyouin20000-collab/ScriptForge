@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canAdvanceWorkflowStep, getCurrentWorkflowSteps, getWorkflowSteps } from "@/lib/workflow";
+import {
+  canAdvanceWorkflowStep,
+  getCurrentWorkflowSteps,
+  getWorkflowCompletion,
+  getWorkflowForwardAction,
+  getWorkflowSteps
+} from "@/lib/workflow";
 
 describe("getWorkflowSteps", () => {
   it("orders the editing and video flow from project input to yaml", () => {
@@ -8,7 +14,7 @@ describe("getWorkflowSteps", () => {
       inputSaved: true,
       chaptersSaved: true,
       hasResult: true,
-      activeStep: "video"
+      activeStep: "prompts"
     });
 
     expect(steps.map((step) => step.id)).toEqual([
@@ -17,8 +23,8 @@ describe("getWorkflowSteps", () => {
       "result",
       "script",
       "storyboard",
-      "video",
       "prompts",
+      "video",
       "revision",
       "yaml"
     ]);
@@ -28,14 +34,14 @@ describe("getWorkflowSteps", () => {
       "改编结果",
       "剧本编辑",
       "分镜",
-      "视频任务",
       "Prompt",
+      "视频任务",
       "反馈回写",
       "YAML"
     ]);
     expect(steps.every((step) => step.available)).toBe(true);
-    expect(steps.find((step) => step.id === "video")?.active).toBe(true);
-    expect(steps.find((step) => step.id === "video")?.order).toBe(6);
+    expect(steps.find((step) => step.id === "prompts")?.active).toBe(true);
+    expect(steps.find((step) => step.id === "prompts")?.order).toBe(6);
   });
 
   it("locks later steps until the previous module is saved", () => {
@@ -182,5 +188,18 @@ describe("getWorkflowSteps", () => {
         savedStep: "yaml"
       })
     ).toBe(false);
+  });
+
+  it("treats the final YAML step as project completion", () => {
+    expect(getWorkflowForwardAction("revision")).toBe("advance");
+    expect(getWorkflowForwardAction("yaml")).toBe("complete");
+  });
+
+  it("keeps progress tied to the active workflow step until completion", () => {
+    expect(getWorkflowCompletion({ started: false })).toBe(8);
+    expect(getWorkflowCompletion({ started: true, activeStep: "input" })).toBe(11);
+    expect(getWorkflowCompletion({ started: true, activeStep: "script" })).toBe(44);
+    expect(getWorkflowCompletion({ started: true, activeStep: "yaml" })).toBe(99);
+    expect(getWorkflowCompletion({ started: true, activeStep: "yaml", completed: true })).toBe(100);
   });
 });
