@@ -104,4 +104,16 @@ describe("video chain API routes", () => {
     expect(payload.script.revision_log[0].feedback).toBe("强调雨滴特写。");
     expect(payload.diffSummary).toContain("shot_scene_001_001");
   });
+
+  it("returns a clear error when storyboard input yaml fails validation", async () => {
+    const script = validScript();
+    script.scenes[0].characters = ["char_missing"];
+
+    const response = await generateStoryboardRoute(request({ yaml: toYaml(script) }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toContain("YAML 校验未通过");
+    expect(payload.error).toContain("scenes.0.characters.0");
+  });
 });

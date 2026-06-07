@@ -6,6 +6,12 @@ type StoredTask = {
   reads: number;
 };
 
+const MOCK_VIDEO_TASK_STORE = Symbol.for("scriptforge.mockVideoTasks");
+
+type MockVideoGlobal = typeof globalThis & {
+  [MOCK_VIDEO_TASK_STORE]?: Map<string, StoredTask>;
+};
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -15,7 +21,13 @@ function taskId(index: number) {
 }
 
 export class MockVideoProvider implements VideoProvider {
-  private tasks = new Map<string, StoredTask>();
+  private tasks: Map<string, StoredTask>;
+
+  constructor() {
+    const globalStore = globalThis as MockVideoGlobal;
+    globalStore[MOCK_VIDEO_TASK_STORE] ??= new Map<string, StoredTask>();
+    this.tasks = globalStore[MOCK_VIDEO_TASK_STORE];
+  }
 
   async submit(request: VideoTaskRequest): Promise<VideoTaskResult> {
     const id = taskId(this.tasks.size + 1);
