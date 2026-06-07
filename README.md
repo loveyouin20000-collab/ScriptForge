@@ -392,3 +392,108 @@ npm.cmd run build
 - 重构优化从 `develop` 拉取 `refactor/*` 分支处理，完成后合并回 `develop`。
 - 紧急线上问题从 `main` 拉取 `hotfix/*` 分支修复，完成后同时合并回 `main` 和 `develop`。
 - `main` 和 `develop` 不直接提交代码，只通过合并进入。
+
+## Recent Product Updates
+
+This workspace now includes the latest local-product features added on top of the original MVP.
+
+### Account Login And Roles
+
+The app now opens with a local login screen before entering the ScriptForge workspace.
+
+Default local accounts:
+
+| Role | Username | Password | Access |
+| --- | --- | --- | --- |
+| Admin | `admin` | `admin123` | Full workspace access plus user management |
+| User | `user` | `user123` | Workspace access only |
+
+Role behavior:
+
+- Admin users can see the `用户管理` navigation item.
+- Normal users cannot see or open user management.
+- The left sidebar shows the current account role, username, and a logout button.
+- Account/session data is stored in browser local storage for the local prototype.
+
+### Admin User Management
+
+Admins can manage local users in the `用户管理` module:
+
+- Create users.
+- Edit username, password, role, and status.
+- Delete users.
+- Enable or disable accounts.
+- View each account's remaining generation count and used generation count.
+- View recent usage records.
+
+Each account has a default quota of `10` real-LLM generation runs. Existing local accounts without quota data are automatically normalized with:
+
+```text
+totalRuns: 10
+usedRuns: 0
+usageRecords: []
+```
+
+### Usage Count And Records
+
+Generation usage is now tracked per logged-in account.
+
+Rules:
+
+- Local mock generation is recorded but does not deduct usage count.
+- Remote LLM generation deducts `1` run and records the operation.
+- Usage records include user, action, cost, timestamp, and note.
+- Admins can inspect recent usage records in the user management page.
+
+### Workflow And YAML Version Management
+
+The adaptation workflow is organized into three gated steps:
+
+1. Project input
+2. Chapter parsing
+3. Adaptation result
+
+Users must start from step 1 and move forward with the workflow buttons. Later steps are not directly editable until previous steps are completed.
+
+The merged YAML result now supports:
+
+- Saving the merged YAML as a version.
+- Viewing saved versions from the left sidebar `保存版本` module.
+- Editing saved version YAML.
+- Restoring a saved version back into the adaptation result editor.
+- Deleting saved versions.
+
+Saved YAML versions are stored in browser local storage and keep the most recent version history for the local prototype.
+
+### LLM Provider And Membership
+
+The LLM provider configuration has been moved into the membership/service area.
+
+The app currently supports:
+
+- Local mock provider when model or API key is empty.
+- OpenAI-compatible remote provider calls when base URL, model, and API key are all configured.
+- Remaining count display in the workflow entry area and user management table.
+
+### Local Service Notes
+
+If `http://127.0.0.1:3000` or `http://localhost:3000` returns `500` after running `npm.cmd run build`, the old Next.js dev process may be holding a stale `.next` cache.
+
+Recommended recovery:
+
+```powershell
+netstat -ano | Select-String ':3000'
+Stop-Process -Id <PID> -Force
+```
+
+Then restart:
+
+```powershell
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+Open:
+
+```text
+http://localhost:3000/
+```
