@@ -65,6 +65,61 @@ const storyStructureSchema = z.object({
   )
 });
 
+const storyboardShotSchema = z.object({
+  id: z.string().min(1),
+  scene_id: z.string().min(1),
+  source_script_index: z.number().int().min(0),
+  description: z.string().min(1),
+  camera: z.string().min(1),
+  framing: z.string().min(1),
+  movement: z.string().min(1),
+  duration_seconds: z.number().positive(),
+  visual_style: z.string().min(1),
+  characters: z.array(z.string().min(1)),
+  location: z.string().min(1)
+});
+
+const videoPromptSchema = z.object({
+  id: z.string().min(1),
+  shot_id: z.string().min(1),
+  positive: z.string().min(1),
+  negative: z.string().min(1),
+  model_notes: z.string().min(1),
+  duration_seconds: z.number().positive(),
+  aspect_ratio: z.string().min(1)
+});
+
+const videoTaskSchema = z.object({
+  id: z.string().min(1),
+  prompt_id: z.string().min(1),
+  provider: z.enum(["mock", "custom_http"]),
+  status: z.enum(["queued", "running", "succeeded", "failed"]),
+  request: z.object({
+    prompt: z.string().min(1),
+    negative_prompt: z.string().optional(),
+    duration_seconds: z.number().positive(),
+    aspect_ratio: z.string().min(1)
+  }),
+  result_url: z.string().min(1).optional(),
+  thumbnail_url: z.string().min(1).optional(),
+  error: z.string().optional(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1)
+});
+
+const revisionScopeSchema = z.object({
+  type: z.enum(["scene", "shot", "prompt", "video_task"]),
+  id: z.string().min(1)
+});
+
+const revisionLogSchema = z.object({
+  id: z.string().min(1),
+  scope: revisionScopeSchema,
+  feedback: z.string().min(1),
+  action: z.string().min(1),
+  created_at: z.string().min(1)
+});
+
 export const scriptYamlSchema = z.object({
   metadata: z.object({
     title: z.string().min(1),
@@ -152,9 +207,15 @@ export const scriptYamlSchema = z.object({
         .object({
           adaptation_strategy: z.string().optional()
         })
-        .optional()
+        .optional(),
+      feedback: z.array(z.string().min(1)).optional(),
+      revision_status: z.enum(["draft", "needs_review", "approved"]).optional()
     })
-  )
+  ),
+  storyboard: z.object({ shots: z.array(storyboardShotSchema) }).optional(),
+  video_prompts: z.array(videoPromptSchema).optional(),
+  video_tasks: z.array(videoTaskSchema).optional(),
+  revision_log: z.array(revisionLogSchema).optional()
 });
 
 function zodPath(path: Array<string | number>) {
@@ -185,6 +246,8 @@ export function validateScriptYaml(input: unknown): {
   const timelineOrders = new Set(data.timeline.map((item) => item.order));
   const conflictIds = new Set(data.conflicts.map((conflict) => conflict.id));
   const sceneIds = new Set(data.scenes.map((scene) => scene.id));
+  const shotIds = new Set(data.storyboard?.shots.map((shot) => shot.id) ?? []);
+  const promptIds = new Set(data.video_prompts?.map((prompt) => prompt.id) ?? []);
 
   data.timeline.forEach((item, index) => {
     if (!chapterIds.has(item.chapter_id)) {
@@ -343,6 +406,64 @@ export function validateScriptYaml(input: unknown): {
         });
       }
     });
+  });
+
+  data.storyboard?.shots.forEach((shot, shotIndex) => {
+    if (!sceneIds.has(shot.scene_id)) {
+      issues.push({
+        path: `storyboard.shots.${shotIndex}.scene_id`,
+        message: `引用了不存在的场景 ${shot.scene_id}`
+      });
+    }
+
+    shot.characters.forEach((characterId, characterIndex) => {
+      if (!characterIds.has(characterId)) {
+        issues.push({
+          path: `storyboard.shots.${shotIndex}.characters.${characterIndex}`,
+          message: `引用了不存在的人物 ${characterId}`
+        });
+      }
+    });
+
+    if (!locationIds.has(shot.location)) {
+      issues.push({
+        path: `storyboard.shots.${shotIndex}.location`,
+        message: `引用了不存在的地点 ${shot.location}`
+      });
+    }
+  });
+
+  data.video_prompts?.forEach((prompt, promptIndex) => {
+    if (!shotIds.has(prompt.shot_id)) {
+      issues.push({
+        path: `video_prompts.${promptIndex}.shot_id`,
+        message: `引用了不存在的镜头 ${prompt.shot_id}`
+      });
+    }
+  });
+
+  data.video_tasks?.forEach((task, taskIndex) => {
+    if (!promptIds.has(task.prompt_id)) {
+      issues.push({
+        path: `video_tasks.${taskIndex}.prompt_id`,
+        message: `引用了不存在的视频 Prompt ${task.prompt_id}`
+      });
+    }
+  });
+
+  data.revision_log?.forEach((revision, revisionIndex) => {
+    const scopeExists =
+      (revision.scope.type === "scene" && sceneIds.has(revision.scope.id)) ||
+      (revision.scope.type === "shot" && shotIds.has(revision.scope.id)) ||
+      (revision.scope.type === "prompt" && promptIds.has(revision.scope.id)) ||
+      (revision.scope.type === "video_task" && data.video_tasks?.some((task) => task.id === revision.scope.id));
+
+    if (!scopeExists) {
+      issues.push({
+        path: `revision_log.${revisionIndex}.scope.id`,
+        message: `引用了不存在的反馈目标 ${revision.scope.id}`
+      });
+    }
   });
 
   return {

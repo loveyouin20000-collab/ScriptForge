@@ -38,8 +38,24 @@ import {
 } from "@/lib/accounts";
 import { buildChapterReviewItems } from "@/lib/chapterReview";
 import { chaptersFromManualText } from "@/lib/chapterSplitter";
+import { validateScriptYaml } from "@/lib/schema";
 import { getMergedYamlSaveUsage, getProviderUsageCost, getUsageQuota, type UsageQuota } from "@/lib/usageQuota";
-import { getWorkflowSteps, type WorkflowStepId } from "@/lib/workflow";
+import {
+  getProjectDraft,
+  parseProjectDrafts,
+  serializeProjectDrafts,
+  updateProjectDraft,
+  type ProjectDraftsByAccount
+} from "@/lib/projectDrafts";
+import {
+  canAdvanceWorkflowStep,
+  getCurrentWorkflowSteps,
+  getWorkflowCompletion,
+  getWorkflowForwardAction,
+  type WorkflowDisplayStepId,
+  type WorkflowStepId
+} from "@/lib/workflow";
+import { toYaml } from "@/lib/yaml";
 import {
   addYamlVersion,
   createYamlVersion,
@@ -52,11 +68,22 @@ import {
 } from "@/lib/yamlVersions";
 import {
   defaultManagedProviders,
+  deleteManagedProviderApiKey,
   parseManagedProviders,
   resolveProviderConfig,
+  saveManagedProviderApiKey,
   serializeManagedProviders
 } from "@/lib/ai/providerCatalog";
-import type { Chapter, ManagedProviderConfig, ProviderConfig, ScriptYaml, ValidationIssue } from "@/lib/types";
+import type {
+  Chapter,
+  ManagedProviderConfig,
+  ProviderConfig,
+  RevisionScope,
+  ScriptLine,
+  ScriptYaml,
+  ValidationIssue,
+  VideoTask
+} from "@/lib/types";
 
 type PipelineResult = {
   script: ScriptYaml;
@@ -70,11 +97,15 @@ type PipelineResult = {
 };
 
 type ActiveView = "workflow" | "schema" | "versions" | "pricing" | "users";
+type ResultFeatureView = "script" | "storyboard" | "video" | "prompts" | "revision" | "yaml";
+type ResultSubView = "overview" | ResultFeatureView;
+type ProjectRestartMode = "clear" | "keepInput";
 
 const ACCOUNTS_STORAGE_KEY = "scriptforge.accounts";
 const SESSION_STORAGE_KEY = "scriptforge.sessionAccountId";
 const YAML_HISTORY_STORAGE_KEY = "scriptforge.yamlVersions";
 const MANAGED_PROVIDERS_STORAGE_KEY = "scriptforge.managedProviders";
+const PROJECT_DRAFTS_STORAGE_KEY = "scriptforge.projectDrafts";
 
 const emptyAccountDraft: AccountDraft = {
   username: "",
@@ -91,6 +122,40 @@ function formatVersionTime(createdAt: string) {
     minute: "2-digit"
   }).format(new Date(createdAt));
 }
+
+const resultSubViews: Array<{ id: ResultFeatureView; label: string }> = [
+  { id: "script", label: "剧本编辑" },
+  { id: "storyboard", label: "分镜" },
+  { id: "prompts", label: "Prompt" },
+  { id: "video", label: "视频任务" },
+  { id: "revision", label: "反馈回写" },
+  { id: "yaml", label: "YAML" }
+];
+
+function scriptLineLabel(line: ScriptLine) {
+  if (line.type === "dialogue") return `对白 · ${line.character}`;
+  if (line.type === "transition") return "转场";
+  return "动作";
+}
+
+function parseRevisionTarget(value: string): RevisionScope | null {
+  const [type, id] = value.split(":");
+  if (!type || !id) return null;
+  if (!["scene", "shot", "prompt", "video_task"].includes(type)) return null;
+  return { type: type as RevisionScope["type"], id };
+}
+
+const workflowDisplayOrder: WorkflowDisplayStepId[] = [
+  "input",
+  "chapters",
+  "result",
+  "script",
+  "storyboard",
+  "prompts",
+  "video",
+  "revision",
+  "yaml"
+];
 
 const sampleText = `第一章 雨夜归人
 雨水顺着老城区咖啡馆的玻璃窗滑落。林晚独自坐在窗边，手机里躺着一条陌生短信：想知道你父亲的真相，今晚别离开。
@@ -191,6 +256,12 @@ scenes:
       - type: action
         content: 雨水拍打着玻璃窗。`;
 
+const defaultProjectDraft = {
+  title: "雨夜旧案",
+  author: "原作者",
+  text: sampleText
+};
+
 type ProviderVendor = ManagedProviderConfig["vendor"];
 
 function downloadText(filename: string, content: string, type = "text/plain;charset=utf-8") {
@@ -219,8 +290,15 @@ function IssueList({ issues }: { issues: ValidationIssue[] }) {
   );
 }
 
-function StoryStructureSummary({ storyStructure }: { storyStructure: ScriptYaml["story_structure"] }) {
+function StoryStructureSummary({
+  storyStructure,
+  characters = []
+}: {
+  storyStructure: ScriptYaml["story_structure"];
+  characters?: ScriptYaml["characters"];
+}) {
   if (!storyStructure) return null;
+  const characterNameById = new Map(characters.map((character) => [character.id, character.name]));
   return (
     <section className="panel storyStructurePanel">
       <div className="sectionHeader">
@@ -250,16 +328,16 @@ function StoryStructureSummary({ storyStructure }: { storyStructure: ScriptYaml[
         <article>
           <h3>幕段与转折</h3>
           <ul className="compactList">
-            {storyStructure.acts.map((act) => (
-              <li key={act.id}>
+            {storyStructure.acts.map((act, index) => (
+              <li key={`act-${act.id}-${index}`}>
                 <strong>{act.name}</strong>
                 <span>{act.purpose}</span>
               </li>
             ))}
           </ul>
           <ul className="compactList">
-            {storyStructure.turning_points.map((point) => (
-              <li key={point.id}>
+            {storyStructure.turning_points.map((point, index) => (
+              <li key={`turning-point-${point.id}-${index}`}>
                 <strong>{point.event}</strong>
                 <span>{point.impact}</span>
               </li>
@@ -269,15 +347,15 @@ function StoryStructureSummary({ storyStructure }: { storyStructure: ScriptYaml[
         <article>
           <h3>冲突与人物弧</h3>
           <ul className="compactList">
-            {storyStructure.conflicts.map((conflict) => (
-              <li key={conflict.id}>
+            {storyStructure.conflicts.map((conflict, index) => (
+              <li key={`story-conflict-${conflict.id}-${index}`}>
                 <strong>{conflict.type}</strong>
                 <span>{conflict.description}</span>
               </li>
             ))}
-            {storyStructure.character_arcs.map((arc) => (
-              <li key={arc.character}>
-                <strong>{arc.character}</strong>
+            {storyStructure.character_arcs.map((arc, index) => (
+              <li key={`character-arc-${arc.character}-${index}`}>
+                <strong>{characterNameById.get(arc.character) ?? arc.character}</strong>
                 <span>
                   {arc.start_state} → {arc.end_state}
                 </span>
@@ -399,8 +477,21 @@ function AdminProviderModule({
   managedProviders: ManagedProviderConfig[];
   onChange: (managedProviders: ManagedProviderConfig[]) => void;
 }) {
+  const [apiKeyDrafts, setApiKeyDrafts] = useState<Record<string, string>>({});
+
   function updateProvider(index: number, patch: Partial<ManagedProviderConfig>) {
     onChange(managedProviders.map((managedProvider, providerIndex) => (providerIndex === index ? { ...managedProvider, ...patch } : managedProvider)));
+  }
+
+  function saveApiKey(provider: ManagedProviderConfig) {
+    const nextProviders = saveManagedProviderApiKey(managedProviders, provider.vendor, apiKeyDrafts[provider.vendor] ?? "");
+    onChange(nextProviders);
+    setApiKeyDrafts((current) => ({ ...current, [provider.vendor]: "" }));
+  }
+
+  function deleteApiKey(provider: ManagedProviderConfig) {
+    onChange(deleteManagedProviderApiKey(managedProviders, provider.vendor));
+    setApiKeyDrafts((current) => ({ ...current, [provider.vendor]: "" }));
   }
 
   return (
@@ -465,6 +556,40 @@ function AdminProviderModule({
                 />
               </label>
             </div>
+            <label className="adminApiKeyControl">
+              API Key
+              <div className="apiKeyControl">
+                <input
+                  type="password"
+                  placeholder={managedProvider.apiKey ? "API Key 已保存，删除后可重新添加" : "输入 API Key 后点击保存"}
+                  value={managedProvider.apiKey ? "••••••••••••" : apiKeyDrafts[managedProvider.vendor] ?? ""}
+                  disabled={Boolean(managedProvider.apiKey)}
+                  onChange={(event) =>
+                    setApiKeyDrafts((current) => ({
+                      ...current,
+                      [managedProvider.vendor]: event.target.value
+                    }))
+                  }
+                />
+                {managedProvider.apiKey ? (
+                  <button className="ghostButton dangerButton" type="button" onClick={() => deleteApiKey(managedProvider)}>
+                    删除
+                  </button>
+                ) : (
+                  <button
+                    className="ghostButton"
+                    type="button"
+                    onClick={() => saveApiKey(managedProvider)}
+                    disabled={!apiKeyDrafts[managedProvider.vendor]?.trim()}
+                  >
+                    保存
+                  </button>
+                )}
+              </div>
+              <small className="secretHint">
+                API Key 仅保存在本机浏览器 localStorage，不会写入源码或提交到 GitHub。
+              </small>
+            </label>
           </article>
         ))}
       </div>
@@ -522,6 +647,7 @@ function PricingPage({
           <span>计费单位</span>
           <strong>1 次生成</strong>
           <p>完成一次章节理解、故事建模、场景拆分或剧本生成请求。</p>
+          <small>一次三章剧本生成通常需要 3-4 次额度，每次生成消耗额度的数目具体取决于章节数量以及启用的生成模块。</small>
         </div>
       </section>
 
@@ -631,9 +757,13 @@ export default function Home() {
   const [inputSaved, setInputSaved] = useState(false);
   const [chaptersSaved, setChaptersSaved] = useState(false);
   const [resultSaved, setResultSaved] = useState(false);
-  const [title, setTitle] = useState("雨夜旧案");
-  const [author, setAuthor] = useState("原作者");
-  const [text, setText] = useState(sampleText);
+  const [savedWorkflowStep, setSavedWorkflowStep] = useState<WorkflowDisplayStepId | "">("");
+  const [title, setTitle] = useState(defaultProjectDraft.title);
+  const [author, setAuthor] = useState(defaultProjectDraft.author);
+  const [text, setText] = useState(defaultProjectDraft.text);
+  const [projectDrafts, setProjectDrafts] = useState<ProjectDraftsByAccount>({});
+  const [projectDraftsLoaded, setProjectDraftsLoaded] = useState(false);
+  const [loadedProjectAccountId, setLoadedProjectAccountId] = useState("");
   const [provider, setProvider] = useState<ProviderConfig>({
     vendor: defaultManagedProviders[0].vendor,
     model: defaultManagedProviders[0].models[0]
@@ -644,6 +774,9 @@ export default function Home() {
   const [manualChapters, setManualChapters] = useState("");
   const [result, setResult] = useState<PipelineResult | null>(null);
   const [yaml, setYaml] = useState("");
+  const [resultSubView, setResultSubView] = useState<ResultSubView>("overview");
+  const [revisionTarget, setRevisionTarget] = useState("");
+  const [revisionFeedback, setRevisionFeedback] = useState("");
   const [confirmedChapterIds, setConfirmedChapterIds] = useState<string[]>([]);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [isValid, setIsValid] = useState(false);
@@ -655,10 +788,12 @@ export default function Home() {
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [versionDraft, setVersionDraft] = useState("");
   const [pendingResultUsageCost, setPendingResultUsageCost] = useState(0);
+  const [showProjectRestartOptions, setShowProjectRestartOptions] = useState(false);
   const currentAccount = useMemo(
     () => accounts.find((account) => account.id === sessionAccountId) ?? null,
     [accounts, sessionAccountId]
   );
+  const currentAccountId = currentAccount?.id ?? "";
   const usageQuota = getUsageQuota(currentAccount?.quota);
   const workflowProviderSelection = useMemo(
     () => getProviderSelection(provider, managedProviders),
@@ -713,30 +848,93 @@ export default function Home() {
     window.localStorage.setItem(MANAGED_PROVIDERS_STORAGE_KEY, serializeManagedProviders(managedProviders));
   }, [managedProviders, managedProvidersLoaded]);
 
-  const workflowSteps = useMemo(
+  useEffect(() => {
+    setProjectDrafts(parseProjectDrafts(window.localStorage.getItem(PROJECT_DRAFTS_STORAGE_KEY)));
+    setProjectDraftsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!projectDraftsLoaded) return;
+    window.localStorage.setItem(PROJECT_DRAFTS_STORAGE_KEY, serializeProjectDrafts(projectDrafts));
+  }, [projectDrafts, projectDraftsLoaded]);
+
+  useEffect(() => {
+    if (!projectDraftsLoaded) return;
+    if (!currentAccountId) {
+      setLoadedProjectAccountId("");
+      return;
+    }
+
+    const storedDrafts = parseProjectDrafts(window.localStorage.getItem(PROJECT_DRAFTS_STORAGE_KEY));
+    setProjectDrafts(storedDrafts);
+    const draft = getProjectDraft(storedDrafts, currentAccountId, defaultProjectDraft);
+    setTitle(draft.title);
+    setAuthor(draft.author);
+    setText(draft.text);
+    setLoadedProjectAccountId(currentAccountId);
+    resetWorkflowState("账户项目已加载");
+  }, [currentAccountId, projectDraftsLoaded]);
+
+  useEffect(() => {
+    if (!projectDraftsLoaded || !currentAccountId || loadedProjectAccountId !== currentAccountId) return;
+
+    setProjectDrafts((current) =>
+      updateProjectDraft(current, currentAccountId, {
+        title,
+        author,
+        text
+      })
+    );
+  }, [author, currentAccountId, loadedProjectAccountId, projectDraftsLoaded, text, title]);
+
+  const activeWorkflowStep = workflowStep === "result" && resultSubView !== "overview" ? resultSubView : workflowStep;
+  const currentWorkflowSteps = useMemo(
     () =>
-      getWorkflowSteps({
+      getCurrentWorkflowSteps({
         started: workflowStarted,
         inputSaved,
         chaptersSaved,
         hasResult: Boolean(result),
-        activeStep: workflowStep
+        activeStep: activeWorkflowStep
       }),
-    [chaptersSaved, inputSaved, result, workflowStarted, workflowStep]
+    [activeWorkflowStep, chaptersSaved, inputSaved, result, workflowStarted]
   );
 
   const completion = useMemo(() => {
-    if (resultSaved) return 100;
-    if (result) return 90;
-    if (chapters.length > 0 && workflowStarted) return 66;
-    if (workflowStarted && text.trim()) return 33;
-    return 8;
-  }, [chapters.length, result, resultSaved, text, workflowStarted]);
+    return getWorkflowCompletion({
+      started: workflowStarted,
+      activeStep: activeWorkflowStep,
+      completed: showProjectRestartOptions
+    });
+  }, [activeWorkflowStep, showProjectRestartOptions, workflowStarted]);
 
   const chapterReviewItems = useMemo(
     () => (result ? buildChapterReviewItems(result.script, result.chapters) : []),
     [result]
   );
+
+  const revisionTargets = useMemo(() => {
+    const script = result?.script;
+    if (!script) return [];
+    return [
+      ...script.scenes.map((scene) => ({
+        value: `scene:${scene.id}`,
+        label: `场景 · ${scene.title}`
+      })),
+      ...(script.storyboard?.shots ?? []).map((shot) => ({
+        value: `shot:${shot.id}`,
+        label: `镜头 · ${shot.id}`
+      })),
+      ...(script.video_prompts ?? []).map((prompt) => ({
+        value: `prompt:${prompt.id}`,
+        label: `Prompt · ${prompt.id}`
+      })),
+      ...(script.video_tasks ?? []).map((task) => ({
+        value: `video_task:${task.id}`,
+        label: `视频任务 · ${task.id}`
+      }))
+    ];
+  }, [result?.script]);
 
   const selectedVersion = useMemo(
     () => yamlVersions.find((version) => version.id === selectedVersionId) ?? yamlVersions[0] ?? null,
@@ -769,6 +967,17 @@ export default function Home() {
 
   const allChaptersConfirmed =
     chapterReviewItems.length > 0 && chapterReviewItems.every((item) => confirmedChapterIds.includes(item.chapter.id));
+  const canAdvanceCurrentWorkflowStep = canAdvanceWorkflowStep({
+    activeStep: activeWorkflowStep,
+    inputSaved,
+    chaptersSaved,
+    hasYaml: Boolean(yaml),
+    allChaptersConfirmed,
+    resultSaved,
+    savedStep: savedWorkflowStep
+  });
+  const workflowForwardAction = getWorkflowForwardAction(activeWorkflowStep);
+  const canCompleteCurrentWorkflow = workflowForwardAction === "complete" && Boolean(yaml) && allChaptersConfirmed;
 
   function login() {
     const account = authenticateAccount(accounts, loginUsername, loginPassword);
@@ -825,21 +1034,24 @@ export default function Home() {
     setStatus(`用户 ${account.username} 已删除`);
   }
 
-  function applyParsedChapters(parsed: Chapter[]) {
+  function applyParsedChapters(parsed: Chapter[], nextStep: WorkflowStepId = "chapters") {
     setWorkflowStarted(true);
     setChapters(parsed);
     setChaptersSaved(false);
     setResult(null);
     setYaml("");
+    setResultSaved(false);
+    setSavedWorkflowStep("");
     setConfirmedChapterIds([]);
     setIssues([]);
     setIsValid(false);
+    setShowProjectRestartOptions(false);
     setManualChapters(
       parsed
         .map((chapter) => `${chapter.title}\n${chapter.text}`)
         .join("\n\n---\n\n")
     );
-    setWorkflowStep("chapters");
+    setWorkflowStep(nextStep);
     setStatus(parsed.length >= 3 ? `已识别 ${parsed.length} 个章节` : "章节少于 3 个，仍可演示生成");
   }
 
@@ -862,12 +1074,25 @@ export default function Home() {
           provider: resolvedProvider
         })
       });
-      const payload = (await response.json()) as { chapters?: Chapter[]; error?: string };
+      const payload = (await response.json()) as {
+        chapters?: Chapter[];
+        source?: "local" | "remote" | "local_fallback";
+        fallbackReason?: string;
+        error?: string;
+      };
       if (!response.ok) throw new Error(payload.error || "章节解析失败");
 
       setInputSaved(true);
       setResultSaved(false);
-      applyParsedChapters(payload.chapters ?? []);
+      setSavedWorkflowStep("");
+      applyParsedChapters(payload.chapters ?? [], "input");
+      if (payload.source === "local_fallback") {
+        setStatus(`远程章节解析失败，已使用本地规则保存。${payload.fallbackReason ? `原因：${payload.fallbackReason}` : ""}`);
+      } else if (payload.source === "local") {
+        setStatus("已使用本地规则保存章节解析结果");
+      } else {
+        setStatus("已使用大模型保存章节解析结果");
+      }
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "章节解析失败");
       setStatus("章节解析失败");
@@ -881,11 +1106,163 @@ export default function Home() {
     setChapters(parsed);
     setChaptersSaved(true);
     setResultSaved(false);
+    setSavedWorkflowStep("");
+    setShowProjectRestartOptions(false);
     setStatus(`章节解析已保存，共 ${parsed.length} 个章节`);
   }
 
+  function syncScript(nextScript: ScriptYaml, statusText: string) {
+    const validation = validateScriptYaml(nextScript);
+    const nextYaml = toYaml(nextScript);
+    setResult((current) =>
+      current
+        ? {
+            ...current,
+            script: nextScript,
+            yaml: nextYaml,
+            validation: {
+              valid: validation.valid,
+              issues: validation.issues
+            }
+          }
+        : current
+    );
+    setYaml(nextYaml);
+    setIssues(validation.issues);
+    setIsValid(validation.valid);
+    setResultSaved(false);
+    setSavedWorkflowStep("");
+    setShowProjectRestartOptions(false);
+    setStatus(statusText);
+  }
+
+  function applyScriptPayload(
+    payload: { script: ScriptYaml; yaml: string; validation: { valid: boolean; issues: ValidationIssue[] } },
+    statusText: string
+  ) {
+    setResult((current) =>
+      current
+        ? {
+            ...current,
+            script: payload.script,
+            yaml: payload.yaml,
+            validation: payload.validation
+          }
+        : current
+    );
+    setYaml(payload.yaml);
+    setIssues(payload.validation.issues);
+    setIsValid(payload.validation.valid);
+    setResultSaved(false);
+    setSavedWorkflowStep("");
+    setShowProjectRestartOptions(false);
+    setStatus(statusText);
+  }
+
+  async function runYamlAction(path: string, body: Record<string, unknown>, statusText: string) {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "操作失败");
+      applyScriptPayload(payload, statusText);
+      return payload;
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "操作失败");
+      setStatus("操作失败");
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function generateStoryboardAction() {
+    await runYamlAction("/api/storyboard/generate", { yaml }, "分镜 YAML 已生成并回写");
+    setResultSubView("storyboard");
+  }
+
+  async function generateVideoPromptsAction() {
+    await runYamlAction("/api/video-prompts/generate", { yaml }, "视频 Prompt 已生成并回写");
+    setResultSubView("prompts");
+  }
+
+  async function submitVideoTasksAction() {
+    await runYamlAction("/api/video/tasks", { yaml }, "mock 视频任务已提交并写回 YAML");
+    setResultSubView("video");
+  }
+
+  async function applyRevisionAction() {
+    const target = parseRevisionTarget(revisionTarget || revisionTargets[0]?.value || "");
+    if (!target || !revisionFeedback.trim()) {
+      setStatus("请先选择反馈目标并填写反馈内容");
+      return;
+    }
+
+    const payload = await runYamlAction(
+      "/api/revisions/apply",
+      {
+        yaml,
+        scope: target,
+        feedback: revisionFeedback
+      },
+      "反馈已局部回写到 YAML"
+    );
+    if (payload) setRevisionFeedback("");
+  }
+
+  async function refreshVideoTask(taskId: string) {
+    if (!result) return;
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/video/tasks/${taskId}`);
+      const payload = (await response.json()) as { task?: VideoTask; error?: string };
+      if (!response.ok || !payload.task) throw new Error(payload.error || "任务查询失败");
+      syncScript(
+        {
+          ...result.script,
+          video_tasks: (result.script.video_tasks ?? []).map((task) => (task.id === taskId ? payload.task! : task))
+        },
+        `视频任务 ${taskId} 已刷新`
+      );
+    } catch (taskError) {
+      setError(taskError instanceof Error ? taskError.message : "任务查询失败");
+      setStatus("任务查询失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openWorkflowStep(stepId: WorkflowDisplayStepId, available: boolean) {
+    if (!available) return;
+    openWorkflowDisplayStep(stepId);
+  }
+
+  function openWorkflowDisplayStep(stepId: WorkflowDisplayStepId) {
+    if (stepId === "input" || stepId === "chapters" || stepId === "result") {
+      setWorkflowStep(stepId);
+      if (stepId === "result") setResultSubView("overview");
+      return;
+    }
+
+    setWorkflowStep("result");
+    setResultSubView(stepId);
+  }
+
+  function moveWorkflowStep(direction: 1 | -1) {
+    const currentIndex = workflowDisplayOrder.indexOf(activeWorkflowStep);
+    const nextStep = workflowDisplayOrder[currentIndex + direction];
+    if (!nextStep) return;
+    openWorkflowDisplayStep(nextStep);
+  }
+
   function saveResult() {
-    if (!yaml || !allChaptersConfirmed) return;
+    if (!yaml || !allChaptersConfirmed) return false;
 
     const version = createYamlVersion({
       yaml,
@@ -903,7 +1280,73 @@ export default function Home() {
       );
     }
     setResultSaved(true);
+    setSavedWorkflowStep(activeWorkflowStep);
     setStatus(`改编结果已保存为 ${formatVersionTime(version.createdAt)} 的版本`);
+    return true;
+  }
+
+  function completeProject() {
+    if (!saveResult()) return;
+
+    setShowProjectRestartOptions(true);
+    setStatus("项目已完成并保存到保存版本，请选择如何开启新一轮项目生成");
+  }
+
+  function restartProject(mode: ProjectRestartMode) {
+    if (mode === "clear") {
+      setTitle("");
+      setAuthor("");
+      setText("");
+    }
+
+    setActiveView("workflow");
+    setWorkflowStarted(true);
+    setWorkflowStep("input");
+    setInputSaved(false);
+    setChaptersSaved(false);
+    setResultSaved(false);
+    setSavedWorkflowStep("");
+    setChapters([]);
+    setManualChapters("");
+    setResult(null);
+    setYaml("");
+    setResultSubView("overview");
+    setRevisionTarget("");
+    setRevisionFeedback("");
+    setConfirmedChapterIds([]);
+    setIssues([]);
+    setIsValid(false);
+    setPendingResultUsageCost(0);
+    setShowProjectRestartOptions(false);
+    setError("");
+    setStatus(mode === "clear" ? "已清空项目输入，请填写新项目" : "已保留项目输入，请重新保存并解析章节");
+  }
+
+  function resetWorkflowState(statusText: string) {
+    setWorkflowStarted(false);
+    setWorkflowStep("input");
+    setInputSaved(false);
+    setChaptersSaved(false);
+    setResultSaved(false);
+    setSavedWorkflowStep("");
+    setChapters([]);
+    setManualChapters("");
+    setResult(null);
+    setYaml("");
+    setResultSubView("overview");
+    setRevisionTarget("");
+    setRevisionFeedback("");
+    setConfirmedChapterIds([]);
+    setIssues([]);
+    setIsValid(false);
+    setPendingResultUsageCost(0);
+    setShowProjectRestartOptions(false);
+    setError("");
+    setStatus(statusText);
+  }
+
+  function abandonWorkflow() {
+    resetWorkflowState("已放弃当前改编，可重新开始");
   }
 
   function restoreYamlVersion(version: SavedYamlVersion) {
@@ -914,6 +1357,8 @@ export default function Home() {
     setWorkflowStarted(true);
     setWorkflowStep("result");
     setResultSaved(true);
+    setSavedWorkflowStep("result");
+    setShowProjectRestartOptions(false);
     setStatus(`已回溯到 ${formatVersionTime(version.createdAt)} 的 YAML 版本`);
   }
 
@@ -973,10 +1418,13 @@ export default function Home() {
       setIssues(payload.validation.issues);
       setIsValid(payload.validation.valid);
       setResultSaved(false);
+      setSavedWorkflowStep("");
+      setShowProjectRestartOptions(false);
       setPendingResultUsageCost(
         resolvedProvider.apiKey && resolvedProvider.model ? getProviderUsageCost(resolvedProvider) : 0
       );
       setWorkflowStep("result");
+      setResultSubView("overview");
       setStatus(payload.validation.valid ? "生成完成，YAML 已通过校验" : "生成完成，但需要修复校验问题");
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : "生成失败");
@@ -998,6 +1446,21 @@ export default function Home() {
       const payload = await response.json();
       setIssues(payload.issues);
       setIsValid(payload.valid);
+      if (payload.data) {
+        setResult((current) =>
+          current
+            ? {
+                ...current,
+                script: payload.data,
+                yaml,
+                validation: {
+                  valid: payload.valid,
+                  issues: payload.issues
+                }
+              }
+            : current
+        );
+      }
       setStatus(payload.valid ? "YAML 校验通过" : "YAML 存在待处理问题");
     } finally {
       setLoading(false);
@@ -1018,6 +1481,21 @@ export default function Home() {
       setYaml(payload.yaml);
       setIssues(payload.validation.issues);
       setIsValid(payload.validation.valid);
+      if (payload.validation.data) {
+        setResult((current) =>
+          current
+            ? {
+                ...current,
+                script: payload.validation.data,
+                yaml: payload.yaml,
+                validation: {
+                  valid: payload.validation.valid,
+                  issues: payload.validation.issues
+                }
+              }
+            : current
+        );
+      }
       setStatus(payload.validation.valid ? "修复完成，YAML 已通过校验" : "修复完成，仍有问题需要手动处理");
     } catch (fixError) {
       setError(fixError instanceof Error ? fixError.message : "修复失败");
@@ -1037,7 +1515,466 @@ export default function Home() {
     const content = await file.text();
     setText(content);
     setInputSaved(false);
+    setSavedWorkflowStep("");
     setStatus(`已读取文件：${file.name}`);
+  }
+
+  function renderResultWorkflowContent() {
+    if (workflowStep !== "result" || !result?.script) return null;
+    const script = result.script;
+
+    if (resultSubView === "overview") {
+      return (
+        <div className="workflowStepContent">
+          <p className="fieldHint">
+            改编结果已生成。确认章节 YAML 后可保存结果，也可以点击下一步进入剧本编辑、分镜、视频任务、Prompt、反馈回写和 YAML。
+          </p>
+        </div>
+      );
+    }
+
+    if (resultSubView === "script") {
+      return (
+        <div className="workflowStepContent visualEditor">
+          <div className="fieldGrid">
+            <label>
+              标题
+              <input
+                value={script.metadata.title}
+                onChange={(event) =>
+                  syncScript(
+                    {
+                      ...script,
+                      metadata: { ...script.metadata, title: event.target.value }
+                    },
+                    "标题已同步到 YAML"
+                  )
+                }
+              />
+            </label>
+            <label>
+              作者
+              <input
+                value={script.metadata.author}
+                onChange={(event) =>
+                  syncScript(
+                    {
+                      ...script,
+                      metadata: { ...script.metadata, author: event.target.value }
+                    },
+                    "作者已同步到 YAML"
+                  )
+                }
+              />
+            </label>
+            <label>
+              风格
+              <input
+                value={script.metadata.style ?? ""}
+                onChange={(event) =>
+                  syncScript(
+                    {
+                      ...script,
+                      metadata: { ...script.metadata, style: event.target.value }
+                    },
+                    "风格已同步到 YAML"
+                  )
+                }
+              />
+            </label>
+          </div>
+          <div className="sceneEditorList">
+            {script.scenes.map((scene, sceneIndex) => (
+              <article className="sceneEditorCard" key={scene.id}>
+                <div className="sectionHeader">
+                  <h3>{scene.title}</h3>
+                  <span className="moduleState">{scene.id}</span>
+                </div>
+                <div className="fieldGrid">
+                  <label>
+                    场景标题
+                    <input
+                      value={scene.title}
+                      onChange={(event) =>
+                        syncScript(
+                          {
+                            ...script,
+                            scenes: script.scenes.map((item) =>
+                              item.id === scene.id ? { ...item, title: event.target.value } : item
+                            )
+                          },
+                          "场景标题已同步到 YAML"
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    场景功能
+                    <input
+                      value={scene.purpose}
+                      onChange={(event) =>
+                        syncScript(
+                          {
+                            ...script,
+                            scenes: script.scenes.map((item) =>
+                              item.id === scene.id ? { ...item, purpose: event.target.value } : item
+                            )
+                          },
+                          "场景功能已同步到 YAML"
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    氛围
+                    <input
+                      value={scene.setting.atmosphere}
+                      onChange={(event) =>
+                        syncScript(
+                          {
+                            ...script,
+                            scenes: script.scenes.map((item) =>
+                              item.id === scene.id
+                                ? {
+                                    ...item,
+                                    setting: { ...item.setting, atmosphere: event.target.value }
+                                  }
+                                : item
+                            )
+                          },
+                          "场景氛围已同步到 YAML"
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="scriptLineList">
+                  {scene.script.map((line, lineIndex) => (
+                    <label key={`${scene.id}-${lineIndex}`}>
+                      {scriptLineLabel(line)}
+                      <textarea
+                        value={line.content}
+                        onChange={(event) => {
+                          const nextScenes = script.scenes.map((item, index) =>
+                            index === sceneIndex
+                              ? {
+                                  ...item,
+                                  script: item.script.map((scriptLine, scriptIndex) =>
+                                    scriptIndex === lineIndex ? { ...scriptLine, content: event.target.value } : scriptLine
+                                  )
+                                }
+                              : item
+                          );
+                          syncScript({ ...script, scenes: nextScenes }, "剧本行已同步到 YAML");
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (resultSubView === "storyboard") {
+      return (
+        <div className="workflowStepContent">
+          <div className="toolbar stepToolbar">
+            <button className="ghostButton" onClick={generateStoryboardAction} disabled={loading}>
+              生成分镜
+            </button>
+          </div>
+          <div className="cardGrid">
+            {(script.storyboard?.shots ?? []).length ? (
+              script.storyboard?.shots.map((shot) => (
+                <article className="videoChainCard" key={shot.id}>
+                  <div className="sectionHeader">
+                    <h3>{shot.id}</h3>
+                    <span className="moduleState active">{shot.duration_seconds}s</span>
+                  </div>
+                  <label>
+                    镜头描述
+                    <textarea
+                      value={shot.description}
+                      onChange={(event) =>
+                        syncScript(
+                          {
+                            ...script,
+                            storyboard: {
+                              shots: script.storyboard!.shots.map((item) =>
+                                item.id === shot.id ? { ...item, description: event.target.value } : item
+                              )
+                            }
+                          },
+                          "分镜描述已同步到 YAML"
+                        )
+                      }
+                    />
+                  </label>
+                  <div className="fieldGrid">
+                    <label>
+                      景别
+                      <input
+                        value={shot.framing}
+                        onChange={(event) =>
+                          syncScript(
+                            {
+                              ...script,
+                              storyboard: {
+                                shots: script.storyboard!.shots.map((item) =>
+                                  item.id === shot.id ? { ...item, framing: event.target.value } : item
+                                )
+                              }
+                            },
+                            "景别已同步到 YAML"
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      运动
+                      <input
+                        value={shot.movement}
+                        onChange={(event) =>
+                          syncScript(
+                            {
+                              ...script,
+                              storyboard: {
+                                shots: script.storyboard!.shots.map((item) =>
+                                  item.id === shot.id ? { ...item, movement: event.target.value } : item
+                                )
+                              }
+                            },
+                            "镜头运动已同步到 YAML"
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      时长
+                      <input
+                        type="number"
+                        min="1"
+                        value={shot.duration_seconds}
+                        onChange={(event) =>
+                          syncScript(
+                            {
+                              ...script,
+                              storyboard: {
+                                shots: script.storyboard!.shots.map((item) =>
+                                  item.id === shot.id ? { ...item, duration_seconds: Number(event.target.value) || 1 } : item
+                                )
+                              }
+                            },
+                            "镜头时长已同步到 YAML"
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="emptyState">还没有分镜。点击“生成分镜”从 scenes.script 生成镜头 YAML。</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (resultSubView === "video") {
+      return (
+        <div className="workflowStepContent">
+          <div className="toolbar stepToolbar">
+            <button className="primaryButton" onClick={submitVideoTasksAction} disabled={loading}>
+              提交 mock 视频
+            </button>
+          </div>
+          <div className="cardGrid">
+            {(script.video_tasks ?? []).length ? (
+              script.video_tasks?.map((task) => (
+                <article className="videoChainCard" key={task.id}>
+                  <div className="sectionHeader">
+                    <h3>{task.id}</h3>
+                    <span className={`moduleState ${task.status === "succeeded" ? "active" : ""}`}>{task.status}</span>
+                  </div>
+                  <p className="fieldHint">{task.prompt_id}</p>
+                  {task.result_url ? (
+                    <div className="videoPreviewBox">
+                      <span>{task.result_url}</span>
+                      <video controls src={task.result_url} />
+                    </div>
+                  ) : (
+                    <p className="fieldHint">任务尚未产生结果 URL，刷新后 mock provider 会推进状态。</p>
+                  )}
+                  <button className="ghostButton" onClick={() => refreshVideoTask(task.id)} disabled={loading}>
+                    刷新状态
+                  </button>
+                </article>
+              ))
+            ) : (
+              <div className="emptyState">还没有视频任务。先生成 Prompt，再点击“提交 mock 视频”。</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (resultSubView === "prompts") {
+      return (
+        <div className="workflowStepContent">
+          <div className="toolbar stepToolbar">
+            <button className="ghostButton" onClick={generateVideoPromptsAction} disabled={loading}>
+              生成 Prompt
+            </button>
+          </div>
+          <div className="cardGrid">
+            {(script.video_prompts ?? []).length ? (
+              script.video_prompts?.map((prompt) => (
+                <article className="videoChainCard" key={prompt.id}>
+                  <div className="sectionHeader">
+                    <h3>{prompt.id}</h3>
+                    <span className="moduleState">{prompt.shot_id}</span>
+                  </div>
+                  <label>
+                    Positive Prompt
+                    <textarea
+                      value={prompt.positive}
+                      onChange={(event) =>
+                        syncScript(
+                          {
+                            ...script,
+                            video_prompts: script.video_prompts!.map((item) =>
+                              item.id === prompt.id ? { ...item, positive: event.target.value } : item
+                            )
+                          },
+                          "视频 Prompt 已同步到 YAML"
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    Negative Prompt
+                    <textarea
+                      value={prompt.negative}
+                      onChange={(event) =>
+                        syncScript(
+                          {
+                            ...script,
+                            video_prompts: script.video_prompts!.map((item) =>
+                              item.id === prompt.id ? { ...item, negative: event.target.value } : item
+                            )
+                          },
+                          "负向 Prompt 已同步到 YAML"
+                        )
+                      }
+                    />
+                  </label>
+                </article>
+              ))
+            ) : (
+              <div className="emptyState">还没有视频 Prompt。点击“生成 Prompt”从分镜生成视频模型提示词。</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (resultSubView === "revision") {
+      return (
+        <div className="workflowStepContent revisionPanel">
+          <label>
+            反馈目标
+            <select
+              value={revisionTarget || revisionTargets[0]?.value || ""}
+              onChange={(event) => setRevisionTarget(event.target.value)}
+            >
+              {revisionTargets.map((target) => (
+                <option key={target.value} value={target.value}>
+                  {target.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            作者反馈
+            <textarea
+              value={revisionFeedback}
+              onChange={(event) => setRevisionFeedback(event.target.value)}
+              placeholder="例如：镜头更贴近窗外雨滴，人物暂时不要入画。"
+            />
+          </label>
+          <button className="primaryButton" onClick={applyRevisionAction} disabled={loading || !revisionTargets.length}>
+            回写反馈
+          </button>
+          <div className="revisionLogList">
+            {(script.revision_log ?? []).map((revision) => (
+              <article key={revision.id}>
+                <strong>{revision.action}</strong>
+                <span>
+                  {revision.scope.type} · {revision.scope.id}
+                </span>
+                <p>{revision.feedback}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="workflowStepContent yamlPane mergedYamlPane">
+        <div className="sectionHeader">
+          <h2>合并后的剧本 YAML</h2>
+          <div className="toolbar">
+            <button className="iconButton" title="保存合并 YAML" onClick={saveResult} disabled={!yaml || !allChaptersConfirmed}>
+              <Save size={18} />
+            </button>
+            <button className="iconButton" title="校验 YAML" onClick={validateYaml} disabled={loading}>
+              <CheckCircle2 size={18} />
+            </button>
+            <button className="iconButton" title="修复 YAML" onClick={fixYaml} disabled={loading}>
+              <RefreshCw size={18} />
+            </button>
+            <button className="iconButton" title="复制 YAML" onClick={copyYaml} disabled={!yaml}>
+              <Clipboard size={18} />
+            </button>
+            <button
+              className="iconButton"
+              title="下载 YAML"
+              onClick={() => downloadText("scriptforge.yaml", yaml, "application/yaml;charset=utf-8")}
+              disabled={!yaml}
+            >
+              <Download size={18} />
+            </button>
+            <button
+              className="iconButton"
+              title="下载 Markdown 剧本"
+              onClick={() => downloadText("scriptforge-script.md", result.markdown ?? "")}
+              disabled={!result.markdown}
+            >
+              <FileText size={18} />
+            </button>
+          </div>
+        </div>
+        <textarea
+          className="yamlEditor"
+          value={yaml}
+          onChange={(event) => {
+            setYaml(event.target.value);
+            setResultSaved(false);
+            setSavedWorkflowStep("");
+            setShowProjectRestartOptions(false);
+          }}
+        />
+        <div className={`validationBox ${isValid ? "ok" : ""}`}>
+          <strong>{isValid ? "YAML 已通过 Schema 与引用校验" : "校验问题"}</strong>
+          <IssueList issues={issues} />
+        </div>
+      </div>
+    );
   }
 
   function renderWorkflowActions() {
@@ -1046,13 +1983,20 @@ export default function Home() {
     if (workflowStep === "input") {
       return (
         <div className="workflowActions">
+          <button className="dangerButton abandonWorkflowButton" onClick={() => abandonWorkflow()}>
+            放弃改编
+          </button>
           <button className="ghostButton" onClick={saveProjectInput} disabled={loading}>
             {loading ? "解析中" : "保存"}
           </button>
           <button className="ghostButton" disabled>
             上一步
           </button>
-          <button className="primaryButton" onClick={saveProjectInput} disabled={loading}>
+          <button
+            className="primaryButton"
+            onClick={() => setWorkflowStep("chapters")}
+            disabled={loading || !canAdvanceCurrentWorkflowStep}
+          >
             下一步
           </button>
         </div>
@@ -1062,6 +2006,9 @@ export default function Home() {
     if (workflowStep === "chapters") {
       return (
         <div className="workflowActions">
+          <button className="dangerButton abandonWorkflowButton" onClick={() => abandonWorkflow()}>
+            放弃改编
+          </button>
           <button className="ghostButton" onClick={applyManualChapters}>
             保存
           </button>
@@ -1076,16 +2023,45 @@ export default function Home() {
       );
     }
 
+    if (showProjectRestartOptions && workflowForwardAction === "complete") {
+      return (
+        <div className="workflowCompletionChoices">
+          <div>
+            <strong>项目已完成并保存到保存版本</strong>
+            <p>请选择下一轮项目生成的起点。</p>
+          </div>
+          <div className="workflowActions">
+            <button className="dangerButton abandonWorkflowButton" onClick={() => abandonWorkflow()}>
+              放弃改编
+            </button>
+            <button className="ghostButton" onClick={() => restartProject("clear")}>
+              清空输入，开始新项目
+            </button>
+            <button className="primaryButton" onClick={() => restartProject("keepInput")}>
+              保留输入，再跑一轮
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="workflowActions">
+        <button className="dangerButton abandonWorkflowButton" onClick={() => abandonWorkflow()}>
+          放弃改编
+        </button>
         <button className="ghostButton" onClick={saveResult} disabled={!yaml || !allChaptersConfirmed}>
           保存
         </button>
-        <button className="ghostButton" onClick={() => setWorkflowStep("chapters")}>
+        <button className="ghostButton" onClick={() => moveWorkflowStep(-1)}>
           上一步
         </button>
-        <button className="primaryButton" disabled>
-          下一步
+        <button
+          className="primaryButton"
+          onClick={workflowForwardAction === "complete" ? completeProject : () => moveWorkflowStep(1)}
+          disabled={workflowForwardAction === "complete" ? !canCompleteCurrentWorkflow : !canAdvanceCurrentWorkflowStep}
+        >
+          {workflowForwardAction === "complete" ? "完成项目" : "下一步"}
         </button>
       </div>
     );
@@ -1197,8 +2173,8 @@ export default function Home() {
             <div className="workflowLead">
               <div>
                 <p className="eyebrow">改编流程</p>
-                <h2>从项目输入到改编结果，一次走完</h2>
-                <p>客户点击开始后，按项目输入、章节解析、改编结果三个步骤完成小说改编。</p>
+                <h2>按当前步骤推进改编链路</h2>
+                <p>这里一次只显示当前流程节点；剧本编辑、分镜、视频任务、Prompt、反馈回写和 YAML 都在本流程内完成。</p>
               </div>
               <div className="workflowLeadActions">
                 <div
@@ -1234,18 +2210,21 @@ export default function Home() {
             </div>
             {workflowStarted ? (
               <div className="workflowSteps">
-                {workflowSteps.map((step, index) => (
-                  <article
+                {currentWorkflowSteps.map((step) => (
+                  <button
                     key={step.id}
                     className={`workflowStep ${step.active ? "active" : ""} ${step.available ? "" : "locked"}`}
+                    onClick={() => openWorkflowStep(step.id, step.available)}
+                    disabled={!step.available}
                   >
-                    <span>{index + 1}</span>
+                    <span>{step.order}</span>
                     <strong>{step.label}</strong>
                     <small>{step.description}</small>
-                  </article>
+                  </button>
                 ))}
               </div>
             ) : null}
+            {renderResultWorkflowContent()}
             {renderWorkflowActions()}
           </section>
         ) : null}
@@ -1270,6 +2249,7 @@ export default function Home() {
                     onChange={(event) => {
                       setTitle(event.target.value);
                       setInputSaved(false);
+                      setSavedWorkflowStep("");
                     }}
                   />
                 </label>
@@ -1280,6 +2260,7 @@ export default function Home() {
                     onChange={(event) => {
                       setAuthor(event.target.value);
                       setInputSaved(false);
+                      setSavedWorkflowStep("");
                     }}
                   />
                 </label>
@@ -1302,6 +2283,7 @@ export default function Home() {
                     onChange={(event) => {
                       setText(event.target.value);
                       setInputSaved(false);
+                      setSavedWorkflowStep("");
                     }}
                   />
                 </label>
@@ -1347,7 +2329,7 @@ export default function Home() {
           </div>
         ) : null}
 
-        {activeView === "workflow" && workflowStarted && workflowStep === "result" ? (
+        {activeView === "workflow" && workflowStarted && workflowStep === "result" && resultSubView === "overview" ? (
           <div className="resultStepStack">
             <section className="panel chapterReviewPanel">
               <div className="sectionHeader">
@@ -1391,9 +2373,413 @@ export default function Home() {
               </div>
             </section>
 
-            <StoryStructureSummary storyStructure={result?.script.story_structure} />
+            <StoryStructureSummary storyStructure={result?.script.story_structure} characters={result?.script.characters} />
 
-            <section className="panel yamlPane mergedYamlPane">
+            {false ? (() => {
+              const result = null as unknown as PipelineResult;
+              return (
+              <section className="panel videoChainPanel">
+                <div className="sectionHeader">
+                  <div>
+                    <p className="eyebrow">Author Review & Video Chain</p>
+                    <h2>作者可视化编辑与视频链路</h2>
+                    <p>字段级编辑、分镜、视频 Prompt、mock 视频任务和反馈回写都会同步到同一份 YAML。</p>
+                  </div>
+                  <div className="toolbar">
+                    <button className="ghostButton" onClick={generateStoryboardAction} disabled={loading}>
+                      生成分镜
+                    </button>
+                    <button className="ghostButton" onClick={generateVideoPromptsAction} disabled={loading}>
+                      生成 Prompt
+                    </button>
+                    <button className="primaryButton" onClick={submitVideoTasksAction} disabled={loading}>
+                      提交 mock 视频
+                    </button>
+                  </div>
+                </div>
+                <div className="resultTabs">
+                  {resultSubViews.map((view) => (
+                    <button
+                      key={view.id}
+                      className={resultSubView === view.id ? "active" : ""}
+                      onClick={() => setResultSubView(view.id)}
+                    >
+                      {view.label}
+                    </button>
+                  ))}
+                </div>
+
+                {resultSubView === "script" ? (
+                  <div className="visualEditor">
+                    <div className="fieldGrid">
+                      <label>
+                        标题
+                        <input
+                          value={result.script.metadata.title}
+                          onChange={(event) =>
+                            syncScript(
+                              {
+                                ...result.script,
+                                metadata: { ...result.script.metadata, title: event.target.value }
+                              },
+                              "标题已同步到 YAML"
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        作者
+                        <input
+                          value={result.script.metadata.author}
+                          onChange={(event) =>
+                            syncScript(
+                              {
+                                ...result.script,
+                                metadata: { ...result.script.metadata, author: event.target.value }
+                              },
+                              "作者已同步到 YAML"
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        风格
+                        <input
+                          value={result.script.metadata.style ?? ""}
+                          onChange={(event) =>
+                            syncScript(
+                              {
+                                ...result.script,
+                                metadata: { ...result.script.metadata, style: event.target.value }
+                              },
+                              "风格已同步到 YAML"
+                            )
+                          }
+                        />
+                      </label>
+                    </div>
+                    <div className="sceneEditorList">
+                      {result.script.scenes.map((scene, sceneIndex) => (
+                        <article className="sceneEditorCard" key={scene.id}>
+                          <div className="sectionHeader">
+                            <h3>{scene.title}</h3>
+                            <span className="moduleState">{scene.id}</span>
+                          </div>
+                          <div className="fieldGrid">
+                            <label>
+                              场景标题
+                              <input
+                                value={scene.title}
+                                onChange={(event) =>
+                                  syncScript(
+                                    {
+                                      ...result.script,
+                                      scenes: result.script.scenes.map((item) =>
+                                        item.id === scene.id ? { ...item, title: event.target.value } : item
+                                      )
+                                    },
+                                    "场景标题已同步到 YAML"
+                                  )
+                                }
+                              />
+                            </label>
+                            <label>
+                              场景功能
+                              <input
+                                value={scene.purpose}
+                                onChange={(event) =>
+                                  syncScript(
+                                    {
+                                      ...result.script,
+                                      scenes: result.script.scenes.map((item) =>
+                                        item.id === scene.id ? { ...item, purpose: event.target.value } : item
+                                      )
+                                    },
+                                    "场景功能已同步到 YAML"
+                                  )
+                                }
+                              />
+                            </label>
+                            <label>
+                              氛围
+                              <input
+                                value={scene.setting.atmosphere}
+                                onChange={(event) =>
+                                  syncScript(
+                                    {
+                                      ...result.script,
+                                      scenes: result.script.scenes.map((item) =>
+                                        item.id === scene.id
+                                          ? {
+                                              ...item,
+                                              setting: { ...item.setting, atmosphere: event.target.value }
+                                            }
+                                          : item
+                                      )
+                                    },
+                                    "场景氛围已同步到 YAML"
+                                  )
+                                }
+                              />
+                            </label>
+                          </div>
+                          <div className="scriptLineList">
+                            {scene.script.map((line, lineIndex) => (
+                              <label key={`${scene.id}-${lineIndex}`}>
+                                {scriptLineLabel(line)}
+                                <textarea
+                                  value={line.content}
+                                  onChange={(event) => {
+                                    const nextScenes = result.script.scenes.map((item, index) =>
+                                      index === sceneIndex
+                                        ? {
+                                            ...item,
+                                            script: item.script.map((scriptLine, scriptIndex) =>
+                                              scriptIndex === lineIndex
+                                                ? { ...scriptLine, content: event.target.value }
+                                                : scriptLine
+                                            )
+                                          }
+                                        : item
+                                    );
+                                    syncScript({ ...result.script, scenes: nextScenes }, "剧本行已同步到 YAML");
+                                  }}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {resultSubView === "storyboard" ? (
+                  <div className="cardGrid">
+                    {(result.script.storyboard?.shots ?? []).length ? (
+                      result.script.storyboard?.shots.map((shot) => (
+                        <article className="videoChainCard" key={shot.id}>
+                          <div className="sectionHeader">
+                            <h3>{shot.id}</h3>
+                            <span className="moduleState active">{shot.duration_seconds}s</span>
+                          </div>
+                          <label>
+                            镜头描述
+                            <textarea
+                              value={shot.description}
+                              onChange={(event) =>
+                                syncScript(
+                                  {
+                                    ...result.script,
+                                    storyboard: {
+                                      shots: result.script.storyboard!.shots.map((item) =>
+                                        item.id === shot.id ? { ...item, description: event.target.value } : item
+                                      )
+                                    }
+                                  },
+                                  "分镜描述已同步到 YAML"
+                                )
+                              }
+                            />
+                          </label>
+                          <div className="fieldGrid">
+                            <label>
+                              景别
+                              <input
+                                value={shot.framing}
+                                onChange={(event) =>
+                                  syncScript(
+                                    {
+                                      ...result.script,
+                                      storyboard: {
+                                        shots: result.script.storyboard!.shots.map((item) =>
+                                          item.id === shot.id ? { ...item, framing: event.target.value } : item
+                                        )
+                                      }
+                                    },
+                                    "景别已同步到 YAML"
+                                  )
+                                }
+                              />
+                            </label>
+                            <label>
+                              运动
+                              <input
+                                value={shot.movement}
+                                onChange={(event) =>
+                                  syncScript(
+                                    {
+                                      ...result.script,
+                                      storyboard: {
+                                        shots: result.script.storyboard!.shots.map((item) =>
+                                          item.id === shot.id ? { ...item, movement: event.target.value } : item
+                                        )
+                                      }
+                                    },
+                                    "镜头运动已同步到 YAML"
+                                  )
+                                }
+                              />
+                            </label>
+                            <label>
+                              时长
+                              <input
+                                type="number"
+                                min="1"
+                                value={shot.duration_seconds}
+                                onChange={(event) =>
+                                  syncScript(
+                                    {
+                                      ...result.script,
+                                      storyboard: {
+                                        shots: result.script.storyboard!.shots.map((item) =>
+                                          item.id === shot.id
+                                            ? { ...item, duration_seconds: Number(event.target.value) || 1 }
+                                            : item
+                                        )
+                                      }
+                                    },
+                                    "镜头时长已同步到 YAML"
+                                  )
+                                }
+                              />
+                            </label>
+                          </div>
+                        </article>
+                      ))
+                    ) : (
+                      <div className="emptyState">还没有分镜。点击“生成分镜”从 scenes.script 生成镜头 YAML。</div>
+                    )}
+                  </div>
+                ) : null}
+
+                {resultSubView === "prompts" ? (
+                  <div className="cardGrid">
+                    {(result.script.video_prompts ?? []).length ? (
+                      result.script.video_prompts?.map((prompt) => (
+                        <article className="videoChainCard" key={prompt.id}>
+                          <div className="sectionHeader">
+                            <h3>{prompt.id}</h3>
+                            <span className="moduleState">{prompt.shot_id}</span>
+                          </div>
+                          <label>
+                            Positive Prompt
+                            <textarea
+                              value={prompt.positive}
+                              onChange={(event) =>
+                                syncScript(
+                                  {
+                                    ...result.script,
+                                    video_prompts: result.script.video_prompts!.map((item) =>
+                                      item.id === prompt.id ? { ...item, positive: event.target.value } : item
+                                    )
+                                  },
+                                  "视频 Prompt 已同步到 YAML"
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Negative Prompt
+                            <textarea
+                              value={prompt.negative}
+                              onChange={(event) =>
+                                syncScript(
+                                  {
+                                    ...result.script,
+                                    video_prompts: result.script.video_prompts!.map((item) =>
+                                      item.id === prompt.id ? { ...item, negative: event.target.value } : item
+                                    )
+                                  },
+                                  "负向 Prompt 已同步到 YAML"
+                                )
+                              }
+                            />
+                          </label>
+                        </article>
+                      ))
+                    ) : (
+                      <div className="emptyState">还没有视频 Prompt。点击“生成 Prompt”从分镜生成视频模型提示词。</div>
+                    )}
+                  </div>
+                ) : null}
+
+                {resultSubView === "video" ? (
+                  <div className="cardGrid">
+                    {(result.script.video_tasks ?? []).length ? (
+                      result.script.video_tasks?.map((task) => (
+                        <article className="videoChainCard" key={task.id}>
+                          <div className="sectionHeader">
+                            <h3>{task.id}</h3>
+                            <span className={`moduleState ${task.status === "succeeded" ? "active" : ""}`}>
+                              {task.status}
+                            </span>
+                          </div>
+                          <p className="fieldHint">{task.prompt_id}</p>
+                          {task.result_url ? (
+                            <div className="videoPreviewBox">
+                              <span>{task.result_url}</span>
+                              <video controls src={task.result_url} />
+                            </div>
+                          ) : (
+                            <p className="fieldHint">任务尚未产生结果 URL，刷新后 mock provider 会推进状态。</p>
+                          )}
+                          <button className="ghostButton" onClick={() => refreshVideoTask(task.id)} disabled={loading}>
+                            刷新状态
+                          </button>
+                        </article>
+                      ))
+                    ) : (
+                      <div className="emptyState">还没有视频任务。先生成 Prompt，再点击“提交 mock 视频”。</div>
+                    )}
+                  </div>
+                ) : null}
+
+                {resultSubView === "revision" ? (
+                  <div className="revisionPanel">
+                    <label>
+                      反馈目标
+                      <select
+                        value={revisionTarget || revisionTargets[0]?.value || ""}
+                        onChange={(event) => setRevisionTarget(event.target.value)}
+                      >
+                        {revisionTargets.map((target) => (
+                          <option key={target.value} value={target.value}>
+                            {target.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      作者反馈
+                      <textarea
+                        value={revisionFeedback}
+                        onChange={(event) => setRevisionFeedback(event.target.value)}
+                        placeholder="例如：镜头更贴近窗外雨滴，人物暂时不要入画。"
+                      />
+                    </label>
+                    <button className="primaryButton" onClick={applyRevisionAction} disabled={loading || !revisionTargets.length}>
+                      回写反馈
+                    </button>
+                    <div className="revisionLogList">
+                      {(result.script.revision_log ?? []).map((revision) => (
+                        <article key={revision.id}>
+                          <strong>{revision.action}</strong>
+                          <span>
+                            {revision.scope.type} · {revision.scope.id}
+                          </span>
+                          <p>{revision.feedback}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+              );
+            })() : null}
+
+            {false && resultSubView === "yaml" ? (
+              <section className="panel yamlPane mergedYamlPane">
               <div className="sectionHeader">
                 <h2>合并后的剧本 YAML</h2>
                 <div className="toolbar">
@@ -1438,6 +2824,7 @@ export default function Home() {
                 onChange={(event) => {
                   setYaml(event.target.value);
                   setResultSaved(false);
+                  setSavedWorkflowStep("");
                 }}
               />
               <div className={`validationBox ${isValid ? "ok" : ""}`}>
@@ -1445,6 +2832,7 @@ export default function Home() {
                 <IssueList issues={issues} />
               </div>
             </section>
+            ) : null}
           </div>
         ) : null}
 

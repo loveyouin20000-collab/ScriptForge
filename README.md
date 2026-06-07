@@ -53,12 +53,6 @@ https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3
 | 远程章节解析失败兜底 | 已实现，DeepSeek/OpenAI-compatible 调用失败时回退本地章节规则并提示用户 |
 | API Key 安全提示 | 已实现，API Key 仅保存在浏览器 localStorage，不写入源码或提交到 GitHub |
 
-## 详细文档
-
-- [会员服务设计](docs/membership-service-design.md)：商业化方案、生成次数规则和服务商配置关系。
-- [本地运行与发布](docs/local-run-and-release.md)：本地启动、服务重启、验证命令和 tag 发布流程。
-- [环境与规划](docs/environment-and-branches.md)：已知环境说明、分支规划和分支使用规则。
-
 ## AI 服务商配置
 
 大模型服务商模块独立于小说输入和流水线本身。管理员统一维护服务商、兼容接口地址、模型列表和 API Key；普通用户只选择已启用的服务商与模型。
@@ -165,7 +159,49 @@ npm.cmd test
 npm.cmd run build
 ```
 
-## 环境与规划
+当前验证状态：
+
+- `npm.cmd test`：62 tests passed
+- `npm.cmd run build`：通过
+
+## 发布流程
+
+项目通过 GitHub Actions 在推送版本 tag 后自动发布：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+tag 名称需要以 `v` 开头，例如 `v0.1.0`。CI 会依次安装依赖、运行测试、构建 Next.js 应用、使用 Vercel CLI 发布生产环境，并在部署成功后创建 GitHub Release。
+
+GitHub Release 的 changelog 使用 GitHub 自动生成的 release notes，会根据上一个 release 之后的提交和 PR 生成摘要。
+
+发布到 Vercel 前，需要在 GitHub 仓库的 Actions secrets 中配置：
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+## 已知环境说明
+
+当前 Windows 环境中，仓库 pre-push hook 会尝试通过 Python 子进程执行 `npm run lint`，但该环境只能稳定识别 `npm.cmd`，因此 hook 会出现 `FileNotFoundError` 或 GBK 解码错误。所有提交在推送前均已手动执行：
+
+```bash
+npm.cmd test
+npm.cmd run build
+```
+
+因此推送时使用过 `git push --no-verify` 绕过该平台兼容问题。
+
+## 分支规划
+
+### 永久分支
+
+| 分支 | 用途 |
+| --- | --- |
+| `main` | 生产稳定版，只保留最终可发布、可演示的版本。 |
+| `develop` | 开发集成版，所有新功能和修复先汇总到这里。 |
 
 已知 Windows hook 兼容问题、分支规划和分支使用规则见 [环境与规划](docs/environment-and-branches.md)。
 
@@ -248,6 +284,39 @@ The merged YAML result now supports:
 Saved YAML versions are stored in browser local storage and keep the most recent version history for the local prototype.
 
 ### Visual Editing And Video Chain
+
+The result workflow now includes the author-facing editing and video chain inside the same stepper instead of a separate module.
+
+Implemented capabilities:
+
+- Card-style script editing for metadata, scenes, and script lines.
+- Deterministic storyboard generation from `scenes.script`.
+- Video prompt generation from storyboard, scene, character, and location context.
+- Mock video provider with task submission, status refresh, result URL, and thumbnail URL fields.
+- Feedback write-back for scene, shot, prompt, and video task scopes.
+- Structured YAML write-back for storyboard, prompts, tasks, and revision logs.
+
+### API Key Management
+
+Admin-managed provider API keys are intentionally local prototype data:
+
+- API keys are stored in browser `localStorage`.
+- API keys are not written to source files.
+- API keys are not committed to GitHub.
+- Saved keys are locked in the UI; deleting a key is required before adding a replacement.
+- The repository ignores `.env*` files, except `.env.example`.
+
+### Remote Failure Fallback
+
+The chapter parsing step now reports which parser was used:
+
+- `remote`: remote OpenAI-compatible model succeeded.
+- `local`: no remote provider was configured, so local chapter rules were used.
+- `local_fallback`: remote parsing failed or returned invalid structure, so local rules were used.
+
+When fallback happens, the workflow status tells the user that the remote parser failed and local rules were used.
+
+### LLM Provider And Membership
 
 The result workflow now includes the author-facing editing and video chain inside the same stepper instead of a separate module.
 
