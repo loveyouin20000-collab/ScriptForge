@@ -41,8 +41,17 @@ import { chaptersFromManualText } from "@/lib/chapterSplitter";
 import { validateScriptYaml } from "@/lib/schema";
 import { getMergedYamlSaveUsage, getProviderUsageCost, getUsageQuota, type UsageQuota } from "@/lib/usageQuota";
 import {
+  getProjectDraft,
+  parseProjectDrafts,
+  serializeProjectDrafts,
+  updateProjectDraft,
+  type ProjectDraftsByAccount
+} from "@/lib/projectDrafts";
+import {
   canAdvanceWorkflowStep,
   getCurrentWorkflowSteps,
+  getWorkflowCompletion,
+  getWorkflowForwardAction,
   type WorkflowDisplayStepId,
   type WorkflowStepId
 } from "@/lib/workflow";
@@ -90,11 +99,13 @@ type PipelineResult = {
 type ActiveView = "workflow" | "schema" | "versions" | "pricing" | "users";
 type ResultFeatureView = "script" | "storyboard" | "video" | "prompts" | "revision" | "yaml";
 type ResultSubView = "overview" | ResultFeatureView;
+type ProjectRestartMode = "clear" | "keepInput";
 
 const ACCOUNTS_STORAGE_KEY = "scriptforge.accounts";
 const SESSION_STORAGE_KEY = "scriptforge.sessionAccountId";
 const YAML_HISTORY_STORAGE_KEY = "scriptforge.yamlVersions";
 const MANAGED_PROVIDERS_STORAGE_KEY = "scriptforge.managedProviders";
+const PROJECT_DRAFTS_STORAGE_KEY = "scriptforge.projectDrafts";
 
 const emptyAccountDraft: AccountDraft = {
   username: "",
@@ -115,8 +126,8 @@ function formatVersionTime(createdAt: string) {
 const resultSubViews: Array<{ id: ResultFeatureView; label: string }> = [
   { id: "script", label: "剧本编辑" },
   { id: "storyboard", label: "分镜" },
-  { id: "video", label: "视频任务" },
   { id: "prompts", label: "Prompt" },
+  { id: "video", label: "视频任务" },
   { id: "revision", label: "反馈回写" },
   { id: "yaml", label: "YAML" }
 ];
@@ -140,8 +151,8 @@ const workflowDisplayOrder: WorkflowDisplayStepId[] = [
   "result",
   "script",
   "storyboard",
-  "video",
   "prompts",
+  "video",
   "revision",
   "yaml"
 ];
@@ -245,6 +256,12 @@ scenes:
       - type: action
         content: 雨水拍打着玻璃窗。`;
 
+const defaultProjectDraft = {
+  title: "雨夜旧案",
+  author: "原作者",
+  text: sampleText
+};
+
 type ProviderVendor = ManagedProviderConfig["vendor"];
 
 function downloadText(filename: string, content: string, type = "text/plain;charset=utf-8") {
@@ -273,8 +290,15 @@ function IssueList({ issues }: { issues: ValidationIssue[] }) {
   );
 }
 
-function StoryStructureSummary({ storyStructure }: { storyStructure: ScriptYaml["story_structure"] }) {
+function StoryStructureSummary({
+  storyStructure,
+  characters = []
+}: {
+  storyStructure: ScriptYaml["story_structure"];
+  characters?: ScriptYaml["characters"];
+}) {
   if (!storyStructure) return null;
+  const characterNameById = new Map(characters.map((character) => [character.id, character.name]));
   return (
     <section className="panel storyStructurePanel">
       <div className="sectionHeader">
@@ -304,16 +328,16 @@ function StoryStructureSummary({ storyStructure }: { storyStructure: ScriptYaml[
         <article>
           <h3>幕段与转折</h3>
           <ul className="compactList">
-            {storyStructure.acts.map((act) => (
-              <li key={act.id}>
+            {storyStructure.acts.map((act, index) => (
+              <li key={`act-${act.id}-${index}`}>
                 <strong>{act.name}</strong>
                 <span>{act.purpose}</span>
               </li>
             ))}
           </ul>
           <ul className="compactList">
-            {storyStructure.turning_points.map((point) => (
-              <li key={point.id}>
+            {storyStructure.turning_points.map((point, index) => (
+              <li key={`turning-point-${point.id}-${index}`}>
                 <strong>{point.event}</strong>
                 <span>{point.impact}</span>
               </li>
@@ -323,15 +347,15 @@ function StoryStructureSummary({ storyStructure }: { storyStructure: ScriptYaml[
         <article>
           <h3>冲突与人物弧</h3>
           <ul className="compactList">
-            {storyStructure.conflicts.map((conflict) => (
-              <li key={conflict.id}>
+            {storyStructure.conflicts.map((conflict, index) => (
+              <li key={`story-conflict-${conflict.id}-${index}`}>
                 <strong>{conflict.type}</strong>
                 <span>{conflict.description}</span>
               </li>
             ))}
-            {storyStructure.character_arcs.map((arc) => (
-              <li key={arc.character}>
-                <strong>{arc.character}</strong>
+            {storyStructure.character_arcs.map((arc, index) => (
+              <li key={`character-arc-${arc.character}-${index}`}>
+                <strong>{characterNameById.get(arc.character) ?? arc.character}</strong>
                 <span>
                   {arc.start_state} → {arc.end_state}
                 </span>
@@ -623,6 +647,7 @@ function PricingPage({
           <span>计费单位</span>
           <strong>1 次生成</strong>
           <p>完成一次章节理解、故事建模、场景拆分或剧本生成请求。</p>
+          <small>一次三章剧本生成通常需要 3-4 次额度，每次生成消耗额度的数目具体取决于章节数量以及启用的生成模块。</small>
         </div>
       </section>
 
@@ -733,9 +758,12 @@ export default function Home() {
   const [chaptersSaved, setChaptersSaved] = useState(false);
   const [resultSaved, setResultSaved] = useState(false);
   const [savedWorkflowStep, setSavedWorkflowStep] = useState<WorkflowDisplayStepId | "">("");
-  const [title, setTitle] = useState("雨夜旧案");
-  const [author, setAuthor] = useState("原作者");
-  const [text, setText] = useState(sampleText);
+  const [title, setTitle] = useState(defaultProjectDraft.title);
+  const [author, setAuthor] = useState(defaultProjectDraft.author);
+  const [text, setText] = useState(defaultProjectDraft.text);
+  const [projectDrafts, setProjectDrafts] = useState<ProjectDraftsByAccount>({});
+  const [projectDraftsLoaded, setProjectDraftsLoaded] = useState(false);
+  const [loadedProjectAccountId, setLoadedProjectAccountId] = useState("");
   const [provider, setProvider] = useState<ProviderConfig>({
     vendor: defaultManagedProviders[0].vendor,
     model: defaultManagedProviders[0].models[0]
@@ -760,10 +788,12 @@ export default function Home() {
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [versionDraft, setVersionDraft] = useState("");
   const [pendingResultUsageCost, setPendingResultUsageCost] = useState(0);
+  const [showProjectRestartOptions, setShowProjectRestartOptions] = useState(false);
   const currentAccount = useMemo(
     () => accounts.find((account) => account.id === sessionAccountId) ?? null,
     [accounts, sessionAccountId]
   );
+  const currentAccountId = currentAccount?.id ?? "";
   const usageQuota = getUsageQuota(currentAccount?.quota);
   const workflowProviderSelection = useMemo(
     () => getProviderSelection(provider, managedProviders),
@@ -818,6 +848,45 @@ export default function Home() {
     window.localStorage.setItem(MANAGED_PROVIDERS_STORAGE_KEY, serializeManagedProviders(managedProviders));
   }, [managedProviders, managedProvidersLoaded]);
 
+  useEffect(() => {
+    setProjectDrafts(parseProjectDrafts(window.localStorage.getItem(PROJECT_DRAFTS_STORAGE_KEY)));
+    setProjectDraftsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!projectDraftsLoaded) return;
+    window.localStorage.setItem(PROJECT_DRAFTS_STORAGE_KEY, serializeProjectDrafts(projectDrafts));
+  }, [projectDrafts, projectDraftsLoaded]);
+
+  useEffect(() => {
+    if (!projectDraftsLoaded) return;
+    if (!currentAccountId) {
+      setLoadedProjectAccountId("");
+      return;
+    }
+
+    const storedDrafts = parseProjectDrafts(window.localStorage.getItem(PROJECT_DRAFTS_STORAGE_KEY));
+    setProjectDrafts(storedDrafts);
+    const draft = getProjectDraft(storedDrafts, currentAccountId, defaultProjectDraft);
+    setTitle(draft.title);
+    setAuthor(draft.author);
+    setText(draft.text);
+    setLoadedProjectAccountId(currentAccountId);
+    resetWorkflowState("账户项目已加载");
+  }, [currentAccountId, projectDraftsLoaded]);
+
+  useEffect(() => {
+    if (!projectDraftsLoaded || !currentAccountId || loadedProjectAccountId !== currentAccountId) return;
+
+    setProjectDrafts((current) =>
+      updateProjectDraft(current, currentAccountId, {
+        title,
+        author,
+        text
+      })
+    );
+  }, [author, currentAccountId, loadedProjectAccountId, projectDraftsLoaded, text, title]);
+
   const activeWorkflowStep = workflowStep === "result" && resultSubView !== "overview" ? resultSubView : workflowStep;
   const currentWorkflowSteps = useMemo(
     () =>
@@ -832,12 +901,12 @@ export default function Home() {
   );
 
   const completion = useMemo(() => {
-    if (resultSaved) return 100;
-    if (result) return 90;
-    if (chapters.length > 0 && workflowStarted) return 66;
-    if (workflowStarted && text.trim()) return 33;
-    return 8;
-  }, [chapters.length, result, resultSaved, text, workflowStarted]);
+    return getWorkflowCompletion({
+      started: workflowStarted,
+      activeStep: activeWorkflowStep,
+      completed: showProjectRestartOptions
+    });
+  }, [activeWorkflowStep, showProjectRestartOptions, workflowStarted]);
 
   const chapterReviewItems = useMemo(
     () => (result ? buildChapterReviewItems(result.script, result.chapters) : []),
@@ -907,6 +976,8 @@ export default function Home() {
     resultSaved,
     savedStep: savedWorkflowStep
   });
+  const workflowForwardAction = getWorkflowForwardAction(activeWorkflowStep);
+  const canCompleteCurrentWorkflow = workflowForwardAction === "complete" && Boolean(yaml) && allChaptersConfirmed;
 
   function login() {
     const account = authenticateAccount(accounts, loginUsername, loginPassword);
@@ -974,6 +1045,7 @@ export default function Home() {
     setConfirmedChapterIds([]);
     setIssues([]);
     setIsValid(false);
+    setShowProjectRestartOptions(false);
     setManualChapters(
       parsed
         .map((chapter) => `${chapter.title}\n${chapter.text}`)
@@ -1035,6 +1107,7 @@ export default function Home() {
     setChaptersSaved(true);
     setResultSaved(false);
     setSavedWorkflowStep("");
+    setShowProjectRestartOptions(false);
     setStatus(`章节解析已保存，共 ${parsed.length} 个章节`);
   }
 
@@ -1059,6 +1132,7 @@ export default function Home() {
     setIsValid(validation.valid);
     setResultSaved(false);
     setSavedWorkflowStep("");
+    setShowProjectRestartOptions(false);
     setStatus(statusText);
   }
 
@@ -1081,6 +1155,7 @@ export default function Home() {
     setIsValid(payload.validation.valid);
     setResultSaved(false);
     setSavedWorkflowStep("");
+    setShowProjectRestartOptions(false);
     setStatus(statusText);
   }
 
@@ -1187,7 +1262,7 @@ export default function Home() {
   }
 
   function saveResult() {
-    if (!yaml || !allChaptersConfirmed) return;
+    if (!yaml || !allChaptersConfirmed) return false;
 
     const version = createYamlVersion({
       yaml,
@@ -1207,6 +1282,71 @@ export default function Home() {
     setResultSaved(true);
     setSavedWorkflowStep(activeWorkflowStep);
     setStatus(`改编结果已保存为 ${formatVersionTime(version.createdAt)} 的版本`);
+    return true;
+  }
+
+  function completeProject() {
+    if (!saveResult()) return;
+
+    setShowProjectRestartOptions(true);
+    setStatus("项目已完成并保存到保存版本，请选择如何开启新一轮项目生成");
+  }
+
+  function restartProject(mode: ProjectRestartMode) {
+    if (mode === "clear") {
+      setTitle("");
+      setAuthor("");
+      setText("");
+    }
+
+    setActiveView("workflow");
+    setWorkflowStarted(true);
+    setWorkflowStep("input");
+    setInputSaved(false);
+    setChaptersSaved(false);
+    setResultSaved(false);
+    setSavedWorkflowStep("");
+    setChapters([]);
+    setManualChapters("");
+    setResult(null);
+    setYaml("");
+    setResultSubView("overview");
+    setRevisionTarget("");
+    setRevisionFeedback("");
+    setConfirmedChapterIds([]);
+    setIssues([]);
+    setIsValid(false);
+    setPendingResultUsageCost(0);
+    setShowProjectRestartOptions(false);
+    setError("");
+    setStatus(mode === "clear" ? "已清空项目输入，请填写新项目" : "已保留项目输入，请重新保存并解析章节");
+  }
+
+  function resetWorkflowState(statusText: string) {
+    setWorkflowStarted(false);
+    setWorkflowStep("input");
+    setInputSaved(false);
+    setChaptersSaved(false);
+    setResultSaved(false);
+    setSavedWorkflowStep("");
+    setChapters([]);
+    setManualChapters("");
+    setResult(null);
+    setYaml("");
+    setResultSubView("overview");
+    setRevisionTarget("");
+    setRevisionFeedback("");
+    setConfirmedChapterIds([]);
+    setIssues([]);
+    setIsValid(false);
+    setPendingResultUsageCost(0);
+    setShowProjectRestartOptions(false);
+    setError("");
+    setStatus(statusText);
+  }
+
+  function abandonWorkflow() {
+    resetWorkflowState("已放弃当前改编，可重新开始");
   }
 
   function restoreYamlVersion(version: SavedYamlVersion) {
@@ -1218,6 +1358,7 @@ export default function Home() {
     setWorkflowStep("result");
     setResultSaved(true);
     setSavedWorkflowStep("result");
+    setShowProjectRestartOptions(false);
     setStatus(`已回溯到 ${formatVersionTime(version.createdAt)} 的 YAML 版本`);
   }
 
@@ -1278,6 +1419,7 @@ export default function Home() {
       setIsValid(payload.validation.valid);
       setResultSaved(false);
       setSavedWorkflowStep("");
+      setShowProjectRestartOptions(false);
       setPendingResultUsageCost(
         resolvedProvider.apiKey && resolvedProvider.model ? getProviderUsageCost(resolvedProvider) : 0
       );
@@ -1824,6 +1966,7 @@ export default function Home() {
             setYaml(event.target.value);
             setResultSaved(false);
             setSavedWorkflowStep("");
+            setShowProjectRestartOptions(false);
           }}
         />
         <div className={`validationBox ${isValid ? "ok" : ""}`}>
@@ -1840,6 +1983,9 @@ export default function Home() {
     if (workflowStep === "input") {
       return (
         <div className="workflowActions">
+          <button className="dangerButton abandonWorkflowButton" onClick={() => abandonWorkflow()}>
+            放弃改编
+          </button>
           <button className="ghostButton" onClick={saveProjectInput} disabled={loading}>
             {loading ? "解析中" : "保存"}
           </button>
@@ -1860,6 +2006,9 @@ export default function Home() {
     if (workflowStep === "chapters") {
       return (
         <div className="workflowActions">
+          <button className="dangerButton abandonWorkflowButton" onClick={() => abandonWorkflow()}>
+            放弃改编
+          </button>
           <button className="ghostButton" onClick={applyManualChapters}>
             保存
           </button>
@@ -1874,16 +2023,45 @@ export default function Home() {
       );
     }
 
+    if (showProjectRestartOptions && workflowForwardAction === "complete") {
+      return (
+        <div className="workflowCompletionChoices">
+          <div>
+            <strong>项目已完成并保存到保存版本</strong>
+            <p>请选择下一轮项目生成的起点。</p>
+          </div>
+          <div className="workflowActions">
+            <button className="dangerButton abandonWorkflowButton" onClick={() => abandonWorkflow()}>
+              放弃改编
+            </button>
+            <button className="ghostButton" onClick={() => restartProject("clear")}>
+              清空输入，开始新项目
+            </button>
+            <button className="primaryButton" onClick={() => restartProject("keepInput")}>
+              保留输入，再跑一轮
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="workflowActions">
+        <button className="dangerButton abandonWorkflowButton" onClick={() => abandonWorkflow()}>
+          放弃改编
+        </button>
         <button className="ghostButton" onClick={saveResult} disabled={!yaml || !allChaptersConfirmed}>
           保存
         </button>
         <button className="ghostButton" onClick={() => moveWorkflowStep(-1)}>
           上一步
         </button>
-        <button className="primaryButton" onClick={() => moveWorkflowStep(1)} disabled={!canAdvanceCurrentWorkflowStep}>
-          下一步
+        <button
+          className="primaryButton"
+          onClick={workflowForwardAction === "complete" ? completeProject : () => moveWorkflowStep(1)}
+          disabled={workflowForwardAction === "complete" ? !canCompleteCurrentWorkflow : !canAdvanceCurrentWorkflowStep}
+        >
+          {workflowForwardAction === "complete" ? "完成项目" : "下一步"}
         </button>
       </div>
     );
@@ -2195,7 +2373,7 @@ export default function Home() {
               </div>
             </section>
 
-            <StoryStructureSummary storyStructure={result?.script.story_structure} />
+            <StoryStructureSummary storyStructure={result?.script.story_structure} characters={result?.script.characters} />
 
             {false ? (() => {
               const result = null as unknown as PipelineResult;

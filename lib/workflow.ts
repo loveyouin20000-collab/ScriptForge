@@ -69,20 +69,20 @@ export function getWorkflowSteps(progress: WorkflowProgress): WorkflowStep[] {
       active: progress.activeStep === "storyboard"
     },
     {
-      id: "video",
-      order: 6,
-      label: "视频任务",
-      description: "提交 mock 视频任务并刷新结果。",
-      available: resultAvailable,
-      active: progress.activeStep === "video"
-    },
-    {
       id: "prompts",
-      order: 7,
+      order: 6,
       label: "Prompt",
       description: "生成并编辑视频模型提示词。",
       available: resultAvailable,
       active: progress.activeStep === "prompts"
+    },
+    {
+      id: "video",
+      order: 7,
+      label: "视频任务",
+      description: "提交 mock 视频任务并刷新结果。",
+      available: resultAvailable,
+      active: progress.activeStep === "video"
     },
     {
       id: "revision",
@@ -133,4 +133,34 @@ export function canAdvanceWorkflowStep({
   if (activeStep === "input") return Boolean(inputSaved);
   if (activeStep === "chapters") return Boolean(chaptersSaved);
   return hasYaml && allChaptersConfirmed && resultSaved && savedStep === activeStep;
+}
+
+export type WorkflowForwardAction = "advance" | "complete";
+
+export function getWorkflowForwardAction(activeStep: WorkflowDisplayStepId): WorkflowForwardAction {
+  return activeStep === "yaml" ? "complete" : "advance";
+}
+
+export function getWorkflowCompletion({
+  started,
+  activeStep,
+  completed = false
+}: {
+  started: boolean;
+  activeStep?: WorkflowDisplayStepId;
+  completed?: boolean;
+}) {
+  if (completed) return 100;
+  if (!started) return 8;
+
+  const steps = getWorkflowSteps({
+    started: true,
+    inputSaved: true,
+    chaptersSaved: true,
+    hasResult: true,
+    activeStep
+  });
+  const activeOrder = steps.find((step) => step.id === activeStep)?.order ?? 1;
+
+  return Math.min(99, Math.round((activeOrder / steps.length) * 100));
 }
