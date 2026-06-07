@@ -115,6 +115,29 @@ function normalizeStoryConflictType(type: string): StoryConflictType {
   return "external";
 }
 
+function normalizeStoryConflictStatus(status: unknown): StoryStructure["conflicts"][number]["status"] {
+  if (status === "resolved" || status === "latent") return status;
+  return "active";
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function stringValue(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function stringList(value: unknown) {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+}
+
+function numberList(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is number => typeof item === "number" && Number.isFinite(item)) : [];
+}
+
 function mockChapterAnalysis(chapter: Chapter, index: number): ChapterAnalysis {
   const names = pickNames(chapter.text, `第${index + 1}章`);
   const locationKeywords = ["咖啡馆", "老城区", "车站", "公寓", "雨夜", "医院", "学校"];
@@ -206,6 +229,99 @@ function buildMockGlobalStory(chapters: Chapter[]): GlobalStory {
   };
 }
 
+export function normalizeGlobalStory(input: unknown, chapters: Chapter[]): GlobalStory {
+  const source = asRecord(input);
+  const chapterIds = chapters.map((chapter) => chapter.id);
+  const fallbackChapterId = chapterIds[0] ?? "ch_001";
+  const rawCharacters = Array.isArray(source.characters) ? source.characters : [];
+  const fallbackNames = unique(chapters.flatMap((chapter) => chapter.main_characters ?? [])).slice(0, 2);
+  const characters: Character[] = (rawCharacters.length ? rawCharacters : fallbackNames).map((item, index) => {
+    const character = asRecord(item);
+    const name = typeof item === "string" ? item : stringValue(character.name, `角色${index + 1}`);
+    return {
+      id: stringValue(character.id, idFrom("char", index)),
+      name,
+      role: stringValue(character.role, index === 0 ? "protagonist" : "supporting"),
+      description: stringValue(character.description, `${name}是推动故事冲突的重要人物。`),
+      motivation: typeof character.motivation === "string" ? character.motivation : undefined,
+      relationships: Array.isArray(character.relationships) ? (character.relationships as Character["relationships"]) : []
+    };
+  });
+  const normalizedCharacters = characters.length
+    ? characters
+    : [
+        {
+          id: "char_001",
+          name: "主角",
+          role: "protagonist",
+          description: "推动故事主线的人物。"
+        }
+      ];
+  const characterIds = normalizedCharacters.map((character) => character.id);
+
+  const rawLocations = Array.isArray(source.locations) ? source.locations : unique(chapters.flatMap((chapter) => chapter.locations ?? []));
+  const locations: Location[] = (rawLocations.length ? rawLocations : ["主要场景"]).map((item, index) => {
+    const location = asRecord(item);
+    const name = typeof item === "string" ? item : stringValue(location.name, `场景${index + 1}`);
+    const type = location.type === "interior" || location.type === "exterior" || location.type === "mixed" ? location.type : "unknown";
+    return {
+      id: stringValue(location.id, idFrom("loc", index)),
+      name,
+      type,
+      description: stringValue(location.description, `${name}承载故事中的关键行动与情绪氛围。`)
+    };
+  });
+
+  const rawConflicts = Array.isArray(source.conflicts) && source.conflicts.length ? source.conflicts : chapters;
+  const conflictIds = rawConflicts.map((item, index) => stringValue(asRecord(item).id, idFrom("conflict", index)));
+  const rawTimeline = Array.isArray(source.timeline) && source.timeline.length ? source.timeline : chapters;
+  const timeline: TimelineItem[] = rawTimeline.map((item, index) => {
+    const event = asRecord(item);
+    const chapter = chapters[index % Math.max(chapters.length, 1)];
+    const order = typeof event.order === "number" && Number.isFinite(event.order) ? event.order : index + 1;
+    return {
+      order,
+      chapter_id: chapterIds.includes(String(event.chapter_id)) ? String(event.chapter_id) : chapter?.id ?? fallbackChapterId,
+      event: stringValue(event.event, chapter?.key_events?.[0] ?? chapter?.title ?? "关键事件推进"),
+      time: typeof event.time === "string" ? event.time : index === 0 ? "开端" : "随后",
+      scene_id: typeof event.scene_id === "string" ? event.scene_id : undefined,
+      conflict_ids: existingList(event.conflict_ids, conflictIds, [conflictIds[index % conflictIds.length] ?? "conflict_001"]),
+      impact: typeof event.impact === "string" ? event.impact : "推动剧情继续发展"
+    };
+  });
+  const timelineOrders = timeline.map((item) => item.order);
+
+  const conflicts: Conflict[] = rawConflicts.map((item, index) => {
+    const conflict = asRecord(item);
+    const chapter = chapters[index % Math.max(chapters.length, 1)];
+    const rawText = typeof item === "string" ? item : "";
+    const description = stringValue(conflict.description, rawText || chapter?.key_events?.[0] || `${chapter?.title ?? "故事"}核心冲突`);
+    const title = stringValue(conflict.title, description);
+    const sourceChapters = existingList(conflict.source_chapters, chapterIds, [chapter?.id ?? fallbackChapterId]);
+    const relatedTimeline = numberList(conflict.related_timeline).filter((order) => timelineOrders.includes(order));
+
+    return {
+      id: stringValue(conflict.id, idFrom("conflict", index)),
+      title,
+      type: stringValue(conflict.type, inferConflictType(`${title} ${description}`)),
+      description,
+      parties: existingList(conflict.parties, characterIds, [characterIds[0] ?? "char_001"]),
+      stakes: stringValue(conflict.stakes, "如果冲突无法解决，关键线索和人物关系都会继续失控。"),
+      status: stringValue(conflict.status, "active"),
+      source_chapters: sourceChapters,
+      related_timeline: relatedTimeline.length ? relatedTimeline : [timelineOrders[index % timelineOrders.length] ?? 1]
+    };
+  });
+
+  return {
+    characters: normalizedCharacters,
+    locations,
+    timeline,
+    conflicts,
+    theme: stringValue(source.theme, "人物在压力中寻找真相，并将内心独白转化为可表演的行动。")
+  };
+}
+
 function buildMockSceneCandidates(chapters: Chapter[], global: GlobalStory): SceneCandidate[] {
   return chapters.map((chapter, index) => {
     const conflict = global.conflicts[index % global.conflicts.length];
@@ -281,6 +397,97 @@ function buildMockStoryStructure(chapters: Chapter[], global: GlobalStory): Stor
           }
         ]
       : []
+  };
+}
+
+export function normalizeStoryStructure(input: unknown, chapters: Chapter[], global: GlobalStory): StoryStructure {
+  const source = asRecord(input);
+  const fallback = buildMockStoryStructure(chapters, global);
+  const chapterIds = chapters.map((chapter) => chapter.id);
+  const characterIds = global.characters.map((character) => character.id);
+  const primaryCharacters = characterIds.slice(0, 2).length ? characterIds.slice(0, 2) : ["char_001"];
+  const rawActs = Array.isArray(source.acts) && source.acts.length ? source.acts : fallback.acts;
+  const rawConflicts = Array.isArray(source.conflicts) && source.conflicts.length ? source.conflicts : fallback.conflicts;
+  const rawTurningPoints =
+    Array.isArray(source.turning_points) && source.turning_points.length ? source.turning_points : fallback.turning_points;
+  const rawCharacterArcs =
+    Array.isArray(source.character_arcs) && source.character_arcs.length ? source.character_arcs : fallback.character_arcs;
+
+  const acts = rawActs.map((item, index) => {
+    const act = asRecord(item);
+    const chapter = chapters[index % Math.max(chapters.length, 1)];
+    const fallbackAct = fallback.acts[index] ?? fallback.acts[0];
+    return {
+      id: stringValue(act.id, idFrom("act", index)),
+      name: stringValue(act.name, typeof item === "string" ? item : fallbackAct?.name ?? (index === 0 ? "开端" : "发展")),
+      purpose: stringValue(act.purpose, fallbackAct?.purpose ?? "推进线索、升级冲突并改变人物处境"),
+      source_chapters: existingList(act.source_chapters, chapterIds, [chapter?.id ?? chapterIds[0] ?? "ch_001"]),
+      key_events: stringList(act.key_events).length
+        ? stringList(act.key_events)
+        : chapter?.key_events?.length
+          ? chapter.key_events
+          : fallbackAct?.key_events ?? [`${chapter?.title ?? "章节"}推动主线发展`]
+    };
+  });
+
+  const conflicts = rawConflicts.map((item, index) => {
+    const conflict = asRecord(item);
+    const globalConflict = global.conflicts[index] ?? global.conflicts[0];
+    const rawText = typeof item === "string" ? item : "";
+    const description = stringValue(conflict.description, rawText || globalConflict?.description || "主角追查真相时遭遇阻力。");
+    return {
+      id: stringValue(conflict.id, globalConflict?.id ?? idFrom("conflict", index)),
+      type: normalizeStoryConflictType(stringValue(conflict.type, inferConflictType(description))),
+      description,
+      characters: existingList(conflict.characters, characterIds, globalConflict?.parties?.length ? globalConflict.parties : primaryCharacters),
+      source_chapters: existingList(conflict.source_chapters, chapterIds, globalConflict?.source_chapters?.length ? globalConflict.source_chapters : chapterIds),
+      status: normalizeStoryConflictStatus(conflict.status)
+    };
+  });
+
+  const turning_points = rawTurningPoints.map((item, index) => {
+    const point = asRecord(item);
+    const chapter = chapters[index % Math.max(chapters.length, 1)];
+    const fallbackPoint = fallback.turning_points[index] ?? fallback.turning_points[0];
+    return {
+      id: stringValue(point.id, idFrom("tp", index)),
+      source_chapter: chapterIds.includes(String(point.source_chapter))
+        ? String(point.source_chapter)
+        : chapter?.id ?? fallbackPoint?.source_chapter ?? chapterIds[0] ?? "ch_001",
+      event: stringValue(point.event, typeof item === "string" ? item : chapter?.key_events?.[0] ?? fallbackPoint?.event ?? "关键事件出现"),
+      impact: stringValue(point.impact, fallbackPoint?.impact ?? "人物目标、关系或局势因此发生变化。")
+    };
+  });
+
+  const character_arcs = rawCharacterArcs.map((item, index) => {
+    const arc = asRecord(item);
+    const fallbackArc = fallback.character_arcs[index] ?? fallback.character_arcs[0];
+    const character =
+      typeof item === "string" && characterIds.includes(item)
+        ? item
+        : characterIds.includes(String(arc.character))
+          ? String(arc.character)
+          : fallbackArc?.character ?? characterIds[index % Math.max(characterIds.length, 1)] ?? "char_001";
+    return {
+      character,
+      start_state: stringValue(arc.start_state, fallbackArc?.start_state ?? "被动面对异常事件"),
+      desire: stringValue(arc.desire, fallbackArc?.desire ?? "查清真相并重新掌握选择权"),
+      obstacle: stringValue(arc.obstacle, fallbackArc?.obstacle ?? "外部阻力与被遮蔽的信息持续干扰判断"),
+      end_state: stringValue(arc.end_state, fallbackArc?.end_state ?? "主动推进调查并承担后果")
+    };
+  });
+
+  return {
+    premise: stringValue(source.premise, fallback.premise),
+    genre: stringValue(source.genre, fallback.genre),
+    logline: stringValue(source.logline, fallback.logline),
+    theme: stringValue(source.theme, fallback.theme),
+    main_conflict: stringValue(source.main_conflict, fallback.main_conflict),
+    dramatic_question: stringValue(source.dramatic_question, fallback.dramatic_question),
+    acts,
+    conflicts,
+    turning_points,
+    character_arcs
   };
 }
 
@@ -419,7 +626,7 @@ async function analyzeChapter(provider: AiProvider | null, chapter: Chapter, ind
 
 async function buildGlobalStory(provider: AiProvider | null, chapters: Chapter[]) {
   if (!provider) return buildMockGlobalStory(chapters);
-  return provider.generateJson<GlobalStory>({
+  const response = await provider.generateJson<GlobalStory>({
     schemaName: "global_story",
     system: "你是小说改编流水线中的全局故事建模器。",
     prompt: `基于章节摘要生成 characters, locations, timeline, conflicts, theme。人物 id 使用 char_001 格式，地点 id 使用 loc_001 格式，冲突 id 使用 conflict_001 格式。timeline 可用 conflict_ids 引用 conflicts，conflicts.related_timeline 必须引用 timeline.order。\n${JSON.stringify(
@@ -428,11 +635,12 @@ async function buildGlobalStory(provider: AiProvider | null, chapters: Chapter[]
       2
     )}`
   });
+  return normalizeGlobalStory(response, chapters);
 }
 
 async function buildStoryStructure(provider: AiProvider | null, chapters: Chapter[], global: GlobalStory) {
   if (!provider) return buildMockStoryStructure(chapters, global);
-  return provider.generateJson<StoryStructure>({
+  const response = await provider.generateJson<StoryStructure>({
     schemaName: "story_structure",
     system: "你是小说改编流水线中的独立剧情结构建模器。",
     prompt: `基于章节摘要和全局故事，输出稳定的 story_structure JSON。字段必须包含 premise, genre, logline, theme, main_conflict, dramatic_question, acts, conflicts, turning_points, character_arcs。source_chapters 和 source_chapter 只能引用已有章节 id，characters 和 character_arcs.character 只能引用已有人物 id。\n章节：${JSON.stringify(
@@ -441,6 +649,7 @@ async function buildStoryStructure(provider: AiProvider | null, chapters: Chapte
       2
     )}\n全局故事：${JSON.stringify(global, null, 2)}`
   });
+  return normalizeStoryStructure(response, chapters, global);
 }
 
 async function buildSceneCandidates(
