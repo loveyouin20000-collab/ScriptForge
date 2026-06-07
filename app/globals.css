@@ -442,6 +442,7 @@ h3 {
 .summaryPane,
 .yamlPane,
 .chapterReviewPanel,
+.storyStructurePanel,
 .chapterLayout > section,
 .schemaLayout .panel {
   padding: 22px;
@@ -1121,6 +1122,53 @@ dd {
   line-height: 1.55;
 }
 
+.storyStructureGrid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 14px;
+}
+
+.storyStructureGrid article {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf7;
+}
+
+.storyStructureGrid h3,
+.storyStructureGrid dl {
+  margin: 0;
+}
+
+.storyStructureGrid dt {
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.storyStructureGrid dd {
+  margin: 4px 0 0;
+  line-height: 1.55;
+}
+
+.compactList {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compactList li {
+  display: grid;
+  gap: 4px;
+}
+
+.compactList span {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 pre {
   overflow: auto;
   margin: 0;
@@ -1376,6 +1424,7 @@ pre {
   .chapterLayout,
   .chapterReviewCard,
   .resultLayout,
+  .storyStructureGrid,
   .versionsPage,
   .usersPage,
   .adminProviderGrid,

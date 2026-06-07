@@ -23,6 +23,10 @@ describe("runPipeline", () => {
     expect(result.yaml).toContain("metadata:");
     expect(result.yaml).toContain("conflicts:");
     expect(result.script.conflicts.length).toBeGreaterThanOrEqual(1);
+    expect(result.yaml).toContain("story_structure:");
+    expect(result.script.story_structure?.acts.length).toBeGreaterThan(0);
+    expect(result.script.story_structure?.main_conflict).toContain("冲突");
+    expect(result.script.story_structure?.turning_points.length).toBeGreaterThan(0);
     expect(result.script.scenes.length).toBeGreaterThanOrEqual(3);
 
     const conflictIds = new Set(result.script.conflicts.map((conflict) => conflict.id));

@@ -1,6 +1,6 @@
 # ScriptForge
 
-ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小说拆解为章节摘要、人物表、地点表、时间线、场景和剧本片段，并输出符合 YAML Schema 的结构化剧本初稿，方便作者继续编辑、校验和二次创作。
+ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小说拆解为章节摘要、人物表、地点表、时间线、独立剧情结构、场景和剧本片段，并输出符合 YAML Schema 的结构化剧本初稿，方便作者继续编辑、校验和二次创作。
 
 当前版本重点不是“一次性生成一段漂亮文本”，而是把小说改编做成可解释、可校验、可编辑的工程化流程。
 
@@ -28,6 +28,7 @@ ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小�
 | 手动调整章节边界 | 已实现，使用 `---` 分隔章节 |
 | 章节摘要、人物、地点、事件抽取 | mock provider 已实现；真实 provider 通过 OpenAI-compatible API |
 | 全局人物表、地点表、时间线 | 已实现 |
+| 独立剧情结构模型 | 已实现 `story_structure`，包含前提、类型、主冲突、幕段、转折、人物弧 |
 | 场景拆分与剧本生成 | 已实现 |
 | 输出结构化 YAML | 已实现 |
 | YAML Schema 校验 | 已实现 Zod 结构校验和引用校验 |
@@ -71,6 +72,7 @@ ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小�
 - `locations`：地点表，场景中通过 location id 引用。
 - `timeline`：按顺序记录剧情事件，可通过 conflict id 关联冲突。
 - `conflicts`：一等冲突模型，记录冲突标题、类型、参与人物、利害关系、来源章节和相关时间线。
+- `story_structure`：独立剧情结构模型，包含 premise、genre、logline、theme、main_conflict、dramatic_question、acts、conflicts、turning_points 和 character_arcs；新 pipeline 默认生成，schema 中保持可选以兼容旧 YAML。
 - `scenes`：结构化剧本场景，包含来源章节、时间地点、人物、冲突引用、目的、节拍、动作、对白和改编策略。
 
 校验内容包括：
@@ -84,6 +86,7 @@ ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小�
 - `conflict.source_chapters` 是否引用已存在章节。
 - `conflict.related_timeline` 是否引用已存在时间线顺序。
 - `timeline.conflict_ids` 和 `scene.conflict_ids` 是否引用已存在冲突。
+- `story_structure` 中的章节引用和人物引用是否存在。
 
 ## 会员服务设计
 
