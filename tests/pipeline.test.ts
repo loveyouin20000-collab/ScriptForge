@@ -21,6 +21,16 @@ describe("runPipeline", () => {
     expect(result.validation.valid).toBe(true);
     expect(result.script.source.chapter_count).toBe(3);
     expect(result.yaml).toContain("metadata:");
+    expect(result.yaml).toContain("conflicts:");
+    expect(result.script.conflicts.length).toBeGreaterThanOrEqual(1);
+    expect(result.yaml).toContain("story_structure:");
+    expect(result.script.story_structure?.acts.length).toBeGreaterThan(0);
+    expect(result.script.story_structure?.main_conflict).toContain("冲突");
+    expect(result.script.story_structure?.turning_points.length).toBeGreaterThan(0);
     expect(result.script.scenes.length).toBeGreaterThanOrEqual(3);
+
+    const conflictIds = new Set(result.script.conflicts.map((conflict) => conflict.id));
+    expect(result.script.scenes.every((scene) => scene.conflict_ids.every((id) => conflictIds.has(id)))).toBe(true);
+    expect(result.script.timeline.some((item) => item.conflict_ids?.some((id) => conflictIds.has(id)))).toBe(true);
   });
 });

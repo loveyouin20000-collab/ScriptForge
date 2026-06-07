@@ -39,9 +39,67 @@ timeline:
   - order: 1
     chapter_id: ch_001
     event: 林晚收到神秘短信
+    conflict_ids:
+      - conflict_001
+    impact: 引出主线冲突
   - order: 2
     chapter_id: ch_001
     event: 周沉出现
+    conflict_ids:
+      - conflict_001
+    impact: 推动冲突升级
+
+conflicts:
+  - id: conflict_001
+    title: 神秘短信引发的对峙
+    type: external
+    description: 林晚收到短信后，必须判断周沉是否与父亲失踪有关。
+    parties:
+      - char_001
+      - char_002
+    stakes: 如果林晚判断失误，旧案线索会再次断裂。
+    status: active
+    source_chapters:
+      - ch_001
+    related_timeline:
+      - 1
+      - 2
+
+story_structure:
+  premise: 林晚被一条陌生短信拉回父亲失踪旧案。
+  genre: 悬疑剧情
+  logline: 年轻小说作者在旧爱协助下追查父亲失踪真相。
+  theme: 真相会迫使人重新面对亲密关系。
+  main_conflict: 林晚的追查与隐藏真相的人持续对抗。
+  dramatic_question: 林晚能否找到父亲失踪的真正原因？
+  acts:
+    - id: act_001
+      name: 开端
+      purpose: 建立人物目标和主线悬念
+      source_chapters:
+        - ch_001
+      key_events:
+        - 林晚收到神秘短信
+  conflicts:
+    - id: conflict_001
+      type: external
+      description: 林晚追查旧案时遭遇阻力。
+      characters:
+        - char_001
+      source_chapters:
+        - ch_001
+      status: active
+  turning_points:
+    - id: tp_001
+      source_chapter: ch_001
+      event: 短信出现
+      impact: 林晚决定重新追查旧案。
+  character_arcs:
+    - character: char_001
+      start_state: 逃避旧案
+      desire: 找出真相
+      obstacle: 信息被人刻意遮蔽
+      end_state: 主动踏入调查
 
 scenes:
   - id: scene_001
@@ -56,6 +114,8 @@ scenes:
     characters:
       - char_001
       - char_002
+    conflict_ids:
+      - conflict_001
     purpose: 引出主线悬念
     beats:
       - 林晚独自等待
@@ -108,7 +168,25 @@ AI 改编时有没有遗漏？
 
 timeline 可以帮助作者检查剧情顺序，也能帮助 AI 生成更连贯的剧本。
 
-6. 为什么 scenes 里要有 beats？
+6. 为什么要单独抽 conflicts？
+
+冲突是人物行动、场景节拍和剧情推进之间的连接点。
+
+把 conflicts 放在顶层后：
+
+人物、场景和时间线可以通过 conflict id 共享同一个冲突定义
+作者能检查冲突是否贯穿多个章节
+后续分镜、局部重写和视频 prompt 可以明确知道每场戏要表现的矛盾
+
+7. 为什么要有 story_structure？
+
+它把故事前提、类型、主冲突、核心悬念、幕段、冲突、转折点和人物弧单独沉淀出来。
+
+这样剧本 YAML 不只是一组场景，还保留了更上游的剧情结构依据。后续生成分镜 YAML、视频 prompt、作者反馈局部重写时，可以引用稳定的 acts、conflicts、turning_points 和 character_arcs，而不是从场景文本里反复猜测。
+
+为了兼容历史 YAML，校验时 story_structure 暂时可选；但新的生成流水线会默认输出它。
+
+8. 为什么 scenes 里要有 beats？
 
 因为直接生成完整剧本容易跑偏。
 
@@ -121,7 +199,7 @@ timeline 可以帮助作者检查剧情顺序，也能帮助 AI 生成更连贯�
 
 再生成对白和动作，会更稳定。
 
-7. 为什么 script 要区分 action / dialogue / transition？
+9. 为什么 script 要区分 action / dialogue / transition？
 
 因为剧本不是普通文章，需要结构化表达。
 

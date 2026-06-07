@@ -33,6 +33,66 @@ export type TimelineItem = {
   chapter_id: string;
   event: string;
   time?: string;
+  scene_id?: string;
+  conflict_ids?: string[];
+  impact?: string;
+};
+
+export type Conflict = {
+  id: string;
+  title: string;
+  type: string;
+  description: string;
+  parties: string[];
+  stakes: string;
+  status: string;
+  source_chapters: string[];
+  related_timeline: number[];
+};
+
+export type StoryAct = {
+  id: string;
+  name: string;
+  purpose: string;
+  source_chapters: string[];
+  key_events: string[];
+};
+
+export type StoryConflict = {
+  id: string;
+  type: "external" | "internal" | "relationship" | "social" | "mystery";
+  description: string;
+  characters: string[];
+  source_chapters: string[];
+  status: "active" | "resolved" | "latent";
+};
+
+export type TurningPoint = {
+  id: string;
+  source_chapter: string;
+  event: string;
+  impact: string;
+};
+
+export type CharacterArc = {
+  character: string;
+  start_state: string;
+  desire: string;
+  obstacle: string;
+  end_state: string;
+};
+
+export type StoryStructure = {
+  premise: string;
+  genre: string;
+  logline: string;
+  theme: string;
+  main_conflict: string;
+  dramatic_question: string;
+  acts: StoryAct[];
+  conflicts: StoryConflict[];
+  turning_points: TurningPoint[];
+  character_arcs: CharacterArc[];
 };
 
 export type ScriptLine =
@@ -59,6 +119,7 @@ export type Scene = {
     atmosphere: string;
   };
   characters: string[];
+  conflict_ids: string[];
   purpose: string;
   beats: string[];
   script: ScriptLine[];
@@ -82,6 +143,8 @@ export type ScriptYaml = {
   characters: Character[];
   locations: Location[];
   timeline: TimelineItem[];
+  conflicts: Conflict[];
+  story_structure?: StoryStructure;
   scenes: Scene[];
 };
 

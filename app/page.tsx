@@ -129,6 +129,50 @@ timeline:
   - order: 1
     chapter_id: ch_001
     event: 林晚收到神秘短信
+    conflict_ids: [conflict_001]
+    impact: 引出主线冲突
+conflicts:
+  - id: conflict_001
+    title: 神秘短信引发的对峙
+    type: external
+    description: 林晚必须判断神秘短信是否与父亲失踪有关。
+    parties: [char_001]
+    stakes: 判断失误会让旧案线索再次断裂。
+    status: active
+    source_chapters: [ch_001]
+    related_timeline: [1]
+story_structure:
+  premise: 林晚被一条陌生短信拉回父亲失踪旧案。
+  genre: 悬疑剧情
+  logline: 年轻小说作者在旧爱协助下追查父亲失踪真相。
+  theme: 真相会迫使人重新面对亲密关系。
+  main_conflict: 林晚的追查与隐藏真相的人持续对抗。
+  dramatic_question: 林晚能否找到父亲失踪的真正原因？
+  acts:
+    - id: act_001
+      name: 开端
+      purpose: 建立人物目标和主线悬念
+      source_chapters: [ch_001]
+      key_events:
+        - 林晚收到神秘短信
+  conflicts:
+    - id: conflict_001
+      type: external
+      description: 林晚追查旧案时遭遇阻力。
+      characters: [char_001]
+      source_chapters: [ch_001]
+      status: active
+  turning_points:
+    - id: tp_001
+      source_chapter: ch_001
+      event: 短信出现
+      impact: 林晚决定重新追查旧案。
+  character_arcs:
+    - character: char_001
+      start_state: 逃避旧案
+      desire: 找出真相
+      obstacle: 信息被人刻意遮蔽
+      end_state: 主动踏入调查
 scenes:
   - id: scene_001
     title: 雨夜重逢
@@ -139,6 +183,7 @@ scenes:
       time: 夜晚
       atmosphere: 悬疑、压抑
     characters: [char_001]
+    conflict_ids: [conflict_001]
     purpose: 引出主线悬念
     beats:
       - 林晚独自等待
@@ -171,6 +216,77 @@ function IssueList({ issues }: { issues: ValidationIssue[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function StoryStructureSummary({ storyStructure }: { storyStructure: ScriptYaml["story_structure"] }) {
+  if (!storyStructure) return null;
+  return (
+    <section className="panel storyStructurePanel">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Story Structure</p>
+          <h2>剧情结构模型</h2>
+          <p>作为剧本 YAML 与后续分镜、视频 prompt、反馈重写之间的稳定上游依据。</p>
+        </div>
+        <span className="moduleState active">{storyStructure.acts.length} 个幕段</span>
+      </div>
+      <div className="storyStructureGrid">
+        <article>
+          <h3>核心设定</h3>
+          <dl>
+            <dt>前提</dt>
+            <dd>{storyStructure.premise}</dd>
+            <dt>类型</dt>
+            <dd>{storyStructure.genre}</dd>
+            <dt>一句话梗概</dt>
+            <dd>{storyStructure.logline}</dd>
+            <dt>主冲突</dt>
+            <dd>{storyStructure.main_conflict}</dd>
+            <dt>核心悬念</dt>
+            <dd>{storyStructure.dramatic_question}</dd>
+          </dl>
+        </article>
+        <article>
+          <h3>幕段与转折</h3>
+          <ul className="compactList">
+            {storyStructure.acts.map((act) => (
+              <li key={act.id}>
+                <strong>{act.name}</strong>
+                <span>{act.purpose}</span>
+              </li>
+            ))}
+          </ul>
+          <ul className="compactList">
+            {storyStructure.turning_points.map((point) => (
+              <li key={point.id}>
+                <strong>{point.event}</strong>
+                <span>{point.impact}</span>
+              </li>
+            ))}
+          </ul>
+        </article>
+        <article>
+          <h3>冲突与人物弧</h3>
+          <ul className="compactList">
+            {storyStructure.conflicts.map((conflict) => (
+              <li key={conflict.id}>
+                <strong>{conflict.type}</strong>
+                <span>{conflict.description}</span>
+              </li>
+            ))}
+            {storyStructure.character_arcs.map((arc) => (
+              <li key={arc.character}>
+                <strong>{arc.character}</strong>
+                <span>
+                  {arc.start_state} → {arc.end_state}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -1275,6 +1391,8 @@ export default function Home() {
               </div>
             </section>
 
+            <StoryStructureSummary storyStructure={result?.script.story_structure} />
+
             <section className="panel yamlPane mergedYamlPane">
               <div className="sectionHeader">
                 <h2>合并后的剧本 YAML</h2>
@@ -1562,8 +1680,10 @@ export default function Home() {
                   ["source", "保留章节数量、章节 id、标题和摘要，让剧本与原小说保持映射。"],
                   ["characters", "建立人物表，场景只引用 id，避免称呼、关系和性格漂移。"],
                   ["locations", "建立地点表，统一场景描述，后续可扩展分镜、拍摄计划和预算。"],
-                  ["timeline", "按事件顺序记录剧情推进，帮助检查改编后的时间线。"],
-                  ["scenes", "每个场景包含来源、时间地点、人物、目的、节拍、动作/对白和改编策略。"]
+                  ["timeline", "按事件顺序记录剧情推进，并可通过 conflict id 关联冲突。"],
+                  ["conflicts", "记录冲突标题、参与人物、利害关系、来源章节和相关时间线。"],
+                  ["story_structure", "抽取前提、主冲突、幕段、转折和人物弧，作为分镜与视频 prompt 的上游依据。"],
+                  ["scenes", "每个场景包含来源、时间地点、人物、冲突引用、目的、节拍、动作/对白和改编策略。"]
                 ].map(([name, description]) => (
                   <article key={name}>
                     <h3>{name}</h3>
