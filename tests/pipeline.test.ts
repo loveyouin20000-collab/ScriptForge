@@ -30,6 +30,14 @@ describe("runPipeline", () => {
     expect(result.script.story_structure?.turning_points.length).toBeGreaterThan(0);
     expect(result.script.scenes.length).toBeGreaterThanOrEqual(3);
 
+    const turningPointEvents = result.script.story_structure?.turning_points.map((point) => point.event) ?? [];
+    expect(turningPointEvents).not.toContain("章节结尾留下下一步悬念");
+    expect(new Set(turningPointEvents).size).toBe(turningPointEvents.length);
+
+    const storyConflictTypes = result.script.story_structure?.conflicts.map((conflict) => conflict.type) ?? [];
+    expect(storyConflictTypes).toContain("mystery");
+    expect(storyConflictTypes.every((type) => type === "external")).toBe(false);
+
     const conflictIds = new Set(result.script.conflicts.map((conflict) => conflict.id));
     expect(result.script.scenes.every((scene) => scene.conflict_ids.every((id) => conflictIds.has(id)))).toBe(true);
     expect(result.script.timeline.some((item) => item.conflict_ids?.some((id) => conflictIds.has(id)))).toBe(true);
