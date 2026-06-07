@@ -1,5 +1,7 @@
 import type { ManagedProviderConfig, ProviderConfig } from "../types";
 
+const API_KEY_FIELD = "apiKey";
+
 export const defaultManagedProviders: ManagedProviderConfig[] = [
   {
     vendor: "openai",
@@ -74,6 +76,33 @@ export function parseManagedProviders(value: string | null): ManagedProviderConf
 
 export function serializeManagedProviders(providers: ManagedProviderConfig[]) {
   return JSON.stringify(providers.map(normalizeManagedProvider));
+}
+
+export function saveManagedProviderApiKey(
+  providers: ManagedProviderConfig[],
+  vendor: ManagedProviderConfig["vendor"],
+  apiKey: string
+) {
+  const trimmedApiKey = apiKey.trim();
+  if (!trimmedApiKey) return providers;
+
+  return providers.map((provider) => {
+    if (provider.vendor !== vendor || provider.apiKey) return provider;
+    return {
+      ...provider,
+      [API_KEY_FIELD]: trimmedApiKey
+    };
+  });
+}
+
+export function deleteManagedProviderApiKey(providers: ManagedProviderConfig[], vendor: ManagedProviderConfig["vendor"]) {
+  return providers.map((provider) => {
+    if (provider.vendor !== vendor) return provider;
+    return {
+      ...provider,
+      apiKey: ""
+    };
+  });
 }
 
 export function resolveProviderConfig(

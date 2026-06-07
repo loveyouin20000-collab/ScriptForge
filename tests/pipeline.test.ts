@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeScene } from "@/lib/pipeline";
 import { runPipeline } from "@/lib/pipeline";
 
 const text = `第一章 雨夜
@@ -32,5 +33,31 @@ describe("runPipeline", () => {
     const conflictIds = new Set(result.script.conflicts.map((conflict) => conflict.id));
     expect(result.script.scenes.every((scene) => scene.conflict_ids.every((id) => conflictIds.has(id)))).toBe(true);
     expect(result.script.timeline.some((item) => item.conflict_ids?.some((id) => conflictIds.has(id)))).toBe(true);
+  });
+
+  it("normalizes remote scenes that omit setting.location", () => {
+    const scene = normalizeScene(
+      {
+        id: "scene_remote",
+        title: "远程场景",
+        source: { chapters: ["ch_001"] },
+        characters: ["char_001"],
+        conflict_ids: ["conflict_001"],
+        purpose: "推进冲突",
+        beats: ["线索出现"],
+        script: [{ type: "action", content: "林晚看向窗外。" }]
+      },
+      0,
+      {
+        chapterIds: ["ch_001"],
+        characterIds: ["char_001"],
+        conflictIds: ["conflict_001"],
+        locationIds: ["loc_001"]
+      }
+    );
+
+    expect(scene.setting.location).toBe("loc_001");
+    expect(scene.setting.time).toBe("连续时间");
+    expect(scene.setting.atmosphere).toBe("紧张、克制");
   });
 });
