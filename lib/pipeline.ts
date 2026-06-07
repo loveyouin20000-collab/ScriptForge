@@ -10,6 +10,7 @@ import type {
   PipelineInput,
   Scene,
   ScriptYaml,
+  StoryStructure,
   TimelineItem
 } from "./types";
 import { toYaml } from "./yaml";
@@ -37,8 +38,15 @@ type SceneCandidate = {
   beats: string[];
 };
 
+type SceneNormalizationRefs = {
+  chapterIds: string[];
+  characterIds: string[];
+  conflictIds: string[];
+  locationIds: string[];
+};
+
 function sentenceFrom(text: string, max = 80) {
-  return text.replace(/\s+/g, " ").trim().slice(0, max) || "Chapter focuses on character choices and conflict.";
+  return text.replace(/\s+/g, " ").trim().slice(0, max) || "本章围绕主要人物的选择与冲突展开。";
 }
 
 function unique<T>(items: T[]) {
@@ -51,9 +59,23 @@ function idFrom(prefix: string, index: number) {
 
 function pickNames(text: string, fallbackPrefix: string) {
   const matches = text.match(/[\u4e00-\u9fa5]{2,4}/g) ?? [];
-  const blocked = new Set(["小说", "本章", "时间", "地方", "夜晚", "清晨", "城市"]);
-  const names = unique(matches.filter((name) => !blocked.has(name))).slice(0, 4);
-  return names.length ? names : [`${fallbackPrefix}主角`, `${fallbackPrefix}对手`];
+  const blocked = new Set([
+    "第一章",
+    "第二章",
+    "第三章",
+    "第四章",
+    "第五章",
+    "小说",
+    "本章",
+    "时候",
+    "地方",
+    "夜晚",
+    "清晨",
+    "城市"
+  ]);
+  return unique(matches.filter((name) => !blocked.has(name))).slice(0, 4).length
+    ? unique(matches.filter((name) => !blocked.has(name))).slice(0, 4)
+    : [`${fallbackPrefix}主角`, `${fallbackPrefix}对手`];
 }
 
 function mockChapterAnalysis(chapter: Chapter, index: number): ChapterAnalysis {
@@ -61,7 +83,7 @@ function mockChapterAnalysis(chapter: Chapter, index: number): ChapterAnalysis {
   const locationKeywords = ["咖啡馆", "老城区", "车站", "公寓", "雨夜", "医院", "学校"];
   const locations = locationKeywords.filter((item) => chapter.text.includes(item));
   return {
-    summary: `${chapter.title}: ${sentenceFrom(chapter.text, 120)}`,
+    summary: `${chapter.title}：${sentenceFrom(chapter.text, 120)}`,
     main_characters: names.slice(0, 3),
     locations: locations.length ? locations.slice(0, 3) : ["主要场景"],
     key_events: [
@@ -75,29 +97,29 @@ function mockChapterAnalysis(chapter: Chapter, index: number): ChapterAnalysis {
 
 function buildMockGlobalStory(chapters: Chapter[]): GlobalStory {
   const names = unique(chapters.flatMap((chapter) => chapter.main_characters ?? [])).slice(0, 5);
-  const locationNames = unique(chapters.flatMap((chapter) => chapter.locations ?? [])).slice(0, 5);
+  const locations = unique(chapters.flatMap((chapter) => chapter.locations ?? [])).slice(0, 5);
   const characters: Character[] = names.map((name, index) => ({
     id: idFrom("char", index),
     name,
     role: index === 0 ? "protagonist" : index === 1 ? "supporting" : "secondary",
-    description: `${name} is an important character whose choices shape the scenes.`,
-    motivation: index === 0 ? "Find the truth and confirm their own position." : "Protect a secret or stance.",
+    description: `${name}是推动故事冲突的重要人物，行为与选择影响场景走向。`,
+    motivation: index === 0 ? "寻找真相并完成自我确认" : "守住自己的秘密或立场",
     relationships:
       index > 0
         ? [
             {
               target: "char_001",
-              relation: "Has a key relationship with the protagonist."
+              relation: "与主角存在关键关系"
             }
           ]
         : []
   }));
 
-  const locations: Location[] = locationNames.map((name, index) => ({
+  const mappedLocations: Location[] = locations.map((name, index) => ({
     id: idFrom("loc", index),
     name,
     type: name.includes("雨") ? "exterior" : "unknown",
-    description: `${name} carries important actions and emotional atmosphere.`
+    description: `${name}承载故事中的关键行动与情绪氛围。`
   }));
 
   const timeline: TimelineItem[] = chapters.flatMap((chapter, chapterIndex) =>
@@ -105,74 +127,144 @@ function buildMockGlobalStory(chapters: Chapter[]): GlobalStory {
       order: chapterIndex * 10 + eventIndex + 1,
       chapter_id: chapter.id,
       event,
-      time: chapterIndex === 0 ? "opening" : "later",
+      time: chapterIndex === 0 ? "开端" : "随后",
       conflict_ids: [idFrom("conflict", chapterIndex)],
-      impact: eventIndex === 1 ? "Conflict escalates." : "Story moves forward."
+      impact: eventIndex === 1 ? "推动冲突升级" : "补充冲突背景"
     }))
   );
 
-  const conflicts: Conflict[] = chapters.map((chapter, index) => ({
-    id: idFrom("conflict", index),
-    title: chapter.key_events?.[1] ?? `${chapter.title} conflict`,
-    type: index === 0 ? "external" : "mixed",
-    description: chapter.key_events?.[1] ?? "Characters clash around the key clue.",
-    parties: characters.slice(0, Math.min(2, characters.length)).map((character) => character.id),
-    stakes: "The key clue may be lost and the character relationship may change.",
-    status: index === chapters.length - 1 ? "escalating" : "active",
-    source_chapters: [chapter.id],
-    related_timeline: timeline.filter((item) => item.chapter_id === chapter.id).map((item) => item.order)
-  }));
+  const conflicts: Conflict[] = chapters.map((chapter, index) => {
+    const relatedTimeline = timeline.filter((item) => item.chapter_id === chapter.id).map((item) => item.order);
+    const title = chapter.key_events?.[1] ?? chapter.key_events?.[0] ?? `${chapter.title}核心冲突`;
+    const parties = characters.slice(0, Math.min(2, characters.length)).map((character) => character.id);
+    return {
+      id: idFrom("conflict", index),
+      title,
+      type: "external",
+      description: `${chapter.title}中，人物围绕“${title}”形成推动剧情前进的冲突。`,
+      parties: parties.length ? parties : ["char_001"],
+      stakes: "如果冲突无法解决，关键线索和人物关系都会继续失控。",
+      status: index === chapters.length - 1 ? "escalating" : "active",
+      source_chapters: [chapter.id],
+      related_timeline: relatedTimeline.length ? relatedTimeline : [timeline[0]?.order ?? 1]
+    };
+  });
 
   return {
     characters,
-    locations: locations.length
-      ? locations
+    locations: mappedLocations.length
+      ? mappedLocations
       : [
           {
             id: "loc_001",
             name: "主要场景",
             type: "unknown",
-            description: "The main location where story events happen."
+            description: "故事主要事件发生的综合场景。"
           }
         ],
     timeline,
     conflicts,
-    theme: "Characters seek truth under pressure and turn inner monologue into playable action."
+    theme: "人物在压力中寻找真相，并将内心独白转化为可表演的行动。",
   };
 }
 
 function buildMockSceneCandidates(chapters: Chapter[], global: GlobalStory): SceneCandidate[] {
-  return chapters.map((chapter, index) => ({
-    source_chapter: chapter.id,
-    title: `${chapter.title.replace(/^第.+?[章节回]\s*/, "") || `场景${index + 1}`}改编场`,
-    location: global.locations[index % global.locations.length]?.id ?? "loc_001",
-    time: index === 0 ? "night" : "continuous time",
-    characters: global.characters.slice(0, Math.min(2 + index, global.characters.length)).map((item) => item.id),
-    conflict_ids: [global.conflicts[index % global.conflicts.length]?.id ?? "conflict_001"],
-    dramatic_function: index === 0 ? "Establish suspense and relationships." : "Advance the main line and deepen conflict.",
-    beats: [
-      chapter.key_events?.[0] ?? "Characters enter the scene.",
-      chapter.key_events?.[1] ?? "A key clue appears.",
-      chapter.key_events?.[2] ?? "Conflict leaves suspense."
-    ]
-  }));
+  return chapters.map((chapter, index) => {
+    const conflict = global.conflicts[index % global.conflicts.length];
+    return {
+      source_chapter: chapter.id,
+      title: `${chapter.title.replace(/^第.+?[章节回]\s*/, "") || `场景${index + 1}`}改编场`,
+      location: global.locations[index % global.locations.length]?.id ?? "loc_001",
+      time: index === 0 ? "夜晚" : "连续时间",
+      characters: global.characters.slice(0, Math.min(2 + index, global.characters.length)).map((item) => item.id),
+      conflict_ids: conflict ? [conflict.id] : [],
+      dramatic_function: index === 0 ? "建立悬念和人物关系" : "推进主线并加深冲突",
+      beats: [
+        chapter.key_events?.[0] ?? "人物进入场景",
+        chapter.key_events?.[1] ?? "关键线索出现",
+        chapter.key_events?.[2] ?? "冲突留下悬念"
+      ]
+    };
+  });
+}
+
+function buildMockStoryStructure(chapters: Chapter[], global: GlobalStory): StoryStructure {
+  const chapterIds = chapters.map((chapter) => chapter.id);
+  const primaryCharacters = global.characters.slice(0, Math.min(2, global.characters.length)).map((item) => item.id);
+  const mainCharacter = global.characters[0]?.id;
+  const mainConflict = global.conflicts[0]?.description ?? global.conflicts[0]?.title ?? "主角的目标与隐藏真相之间持续发生冲突。";
+  return {
+    premise: chapters[0]?.summary ?? "主角被关键事件推入一段必须面对真相的旅程。",
+    genre: "悬疑剧情",
+    logline: `${global.characters[0]?.name ?? "主角"}围绕关键线索追查真相，并在冲突升级中完成选择。`,
+    theme: global.theme,
+    main_conflict: mainConflict,
+    dramatic_question: "主角能否突破阻力，找到隐藏在事件背后的真正答案？",
+    acts: chapters.map((chapter, index) => ({
+      id: idFrom("act", index),
+      name: index === 0 ? "开端" : index === chapters.length - 1 ? "高潮与转折" : "发展",
+      purpose: index === 0 ? "建立人物目标和核心悬念" : "推进线索、升级冲突并改变人物处境",
+      source_chapters: [chapter.id],
+      key_events: chapter.key_events?.length ? chapter.key_events : [`${chapter.title}推动主线发展`]
+    })),
+    conflicts: global.conflicts.length
+      ? global.conflicts.map((conflict) => ({
+          id: conflict.id,
+          type: conflict.type === "internal" ? "internal" : "external",
+          description: conflict.description,
+          characters: conflict.parties.length ? conflict.parties : primaryCharacters,
+          source_chapters: conflict.source_chapters.length ? conflict.source_chapters : chapterIds,
+          status: conflict.status === "resolved" ? "resolved" : "active"
+        }))
+      : [
+          {
+            id: "conflict_001",
+            type: "external",
+            description: mainConflict,
+            characters: primaryCharacters.length ? primaryCharacters : global.characters.slice(0, 1).map((item) => item.id),
+            source_chapters: chapterIds,
+            status: "active"
+          }
+        ],
+    turning_points: chapters.map((chapter, index) => ({
+      id: idFrom("tp", index),
+      source_chapter: chapter.id,
+      event: chapter.key_events?.[chapter.key_events.length - 1] ?? `${chapter.title}留下新的变化`,
+      impact: index === 0 ? "主角被迫进入主线行动。" : "人物目标、关系或局势因此发生变化。"
+    })),
+    character_arcs: mainCharacter
+      ? [
+          {
+            character: mainCharacter,
+            start_state: "被动面对异常事件",
+            desire: "查清真相并重新掌握选择权",
+            obstacle: "外部阻力与被遮蔽的信息持续干扰判断",
+            end_state: "主动推进调查并承担后果"
+          }
+        ]
+      : []
+  };
 }
 
 function buildMockScene(candidate: SceneCandidate, index: number, global: GlobalStory): Scene {
   const firstCharacter = candidate.characters[0] ?? global.characters[0]?.id ?? "char_001";
   const secondCharacter = candidate.characters[1] ?? firstCharacter;
-  const conflict = global.conflicts.find((item) => item.id === candidate.conflict_ids[0]);
+  const conflictText =
+    candidate.conflict_ids
+      .map((id) => global.conflicts.find((conflict) => conflict.id === id)?.title)
+      .filter(Boolean)
+      .join("、") || "关键线索";
   return {
     id: idFrom("scene", index),
     title: candidate.title,
     source: {
       chapters: [candidate.source_chapter],
-      original_range: `${candidate.source_chapter} main plot`
+      original_range: `${candidate.source_chapter} 主要情节`
     },
     setting: {
       location: candidate.location,
       time: candidate.time,
-      atmosphere: index === 0 ? "suspenseful, oppressive" : "tense, restrained"
+      atmosphere: index === 0 ? "悬疑、压抑" : "紧张、克制"
     },
     characters: candidate.characters,
     conflict_ids: candidate.conflict_ids,
@@ -181,26 +273,96 @@ function buildMockScene(candidate: SceneCandidate, index: number, global: Global
     script: [
       {
         type: "action",
-        content: `The scene unfolds at ${candidate.time}; characters enter conflict around "${conflict?.title ?? "the key clue"}".`
+        content: `场景在${candidate.time}展开，人物围绕“${conflictText}”进入对峙。`
       },
       {
         type: "dialogue",
         character: firstCharacter,
-        content: "We cannot delay this any longer."
+        content: "这件事不能再拖下去了。"
       },
       {
         type: "dialogue",
         character: secondCharacter,
-        content: "You have only seen part of it."
+        content: "你看到的只是其中一部分。"
       },
       {
         type: "action",
-        content: "After a short silence, the new clue pushes their relationship into a tighter position."
+        content: "短暂沉默后，新的线索把两人的关系推向更紧张的位置。"
       }
     ],
     notes: {
-      adaptation_strategy: "Keep the core chapter event and compress inner description into action, pauses, and dialogue."
+      adaptation_strategy: "保留原文章节的核心事件，将心理描写压缩为行动、停顿和对白。"
     }
+  };
+}
+
+function existingList(values: unknown, allowed: string[], fallback: string[]) {
+  if (!Array.isArray(values)) return fallback;
+  const cleaned = values.filter((value): value is string => typeof value === "string" && allowed.includes(value));
+  return cleaned.length ? cleaned : fallback;
+}
+
+export function normalizeScene(input: unknown, index: number, refs: SceneNormalizationRefs): Scene {
+  const scene = input && typeof input === "object" ? (input as Partial<Scene>) : {};
+  const fallbackChapter = refs.chapterIds[0] ?? "ch_001";
+  const fallbackCharacter = refs.characterIds[0] ?? "char_001";
+  const fallbackConflict = refs.conflictIds[0] ?? "conflict_001";
+  const fallbackLocation = refs.locationIds[0] ?? "loc_001";
+  const setting = scene.setting && typeof scene.setting === "object" ? scene.setting : undefined;
+  const source = scene.source && typeof scene.source === "object" ? scene.source : undefined;
+  const scriptLines = Array.isArray(scene.script) ? scene.script : [];
+  const script = scriptLines
+    .map((line) => {
+      if (!line || typeof line !== "object") return null;
+      if (line.type === "dialogue") {
+        return {
+          type: "dialogue" as const,
+          character:
+            typeof line.character === "string" && refs.characterIds.includes(line.character)
+              ? line.character
+              : fallbackCharacter,
+          content: typeof line.content === "string" && line.content.trim() ? line.content : "待补充对白"
+        };
+      }
+      return {
+        type: line.type === "transition" ? ("transition" as const) : ("action" as const),
+        content: typeof line.content === "string" && line.content.trim() ? line.content : "待补充动作"
+      };
+    })
+    .filter((line): line is Scene["script"][number] => Boolean(line));
+
+  return {
+    id: typeof scene.id === "string" && scene.id.trim() ? scene.id : idFrom("scene", index),
+    title: typeof scene.title === "string" && scene.title.trim() ? scene.title : `场景${index + 1}`,
+    source: {
+      chapters: existingList(source?.chapters, refs.chapterIds, [fallbackChapter]),
+      original_range: source?.original_range
+    },
+    setting: {
+      location:
+        typeof setting?.location === "string" && refs.locationIds.includes(setting.location)
+          ? setting.location
+          : fallbackLocation,
+      time: typeof setting?.time === "string" && setting.time.trim() ? setting.time : "连续时间",
+      atmosphere:
+        typeof setting?.atmosphere === "string" && setting.atmosphere.trim() ? setting.atmosphere : "紧张、克制"
+    },
+    characters: existingList(scene.characters, refs.characterIds, [fallbackCharacter]),
+    conflict_ids: existingList(scene.conflict_ids, refs.conflictIds, [fallbackConflict]),
+    purpose: typeof scene.purpose === "string" && scene.purpose.trim() ? scene.purpose : "推进剧情并明确人物目标",
+    beats:
+      Array.isArray(scene.beats) && scene.beats.some((beat) => typeof beat === "string" && beat.trim())
+        ? scene.beats.filter((beat): beat is string => typeof beat === "string" && beat.trim().length > 0)
+        : ["人物进入场景", "关键线索出现"],
+    script: script.length
+      ? script
+      : [
+          {
+            type: "action",
+            content: "人物进入场景，新的线索推动剧情继续发展。"
+          }
+        ],
+    notes: scene.notes
   };
 }
 
@@ -212,8 +374,8 @@ async function analyzeChapter(provider: AiProvider | null, chapter: Chapter, ind
   if (!provider) return mockChapterAnalysis(chapter, index);
   return provider.generateJson<ChapterAnalysis>({
     schemaName: "chapter_analysis",
-    system: "You are the chapter understanding module in a novel-to-script adaptation pipeline.",
-    prompt: `Analyze the chapter and output JSON with summary, main_characters, locations, key_events, emotional_tone.\nChapter title: ${chapter.title}\nChapter text: ${chapter.text}`
+    system: "你是小说改编流水线中的章节理解器。",
+    prompt: `请分析以下章节，输出 JSON：summary, main_characters, locations, key_events, emotional_tone。\n章节标题：${chapter.title}\n章节正文：${chapter.text}`
   });
 }
 
@@ -221,29 +383,43 @@ async function buildGlobalStory(provider: AiProvider | null, chapters: Chapter[]
   if (!provider) return buildMockGlobalStory(chapters);
   return provider.generateJson<GlobalStory>({
     schemaName: "global_story",
-    system: "You are the global story modeling module in a novel-to-script adaptation pipeline.",
-    prompt: `Based on chapter summaries, generate JSON with characters, locations, timeline, conflicts, and theme.
-Use character ids like char_001, location ids like loc_001, and conflict ids like conflict_001.
-timeline items may include conflict_ids. conflicts must include id, title, type, description, parties, stakes, status, source_chapters, related_timeline.
-All parties must reference character ids. source_chapters must reference chapter ids. related_timeline must reference timeline order numbers.
-Do not output main_conflict; conflicts is the first-class conflict model.
-Chapters:
-${JSON.stringify(chapters, null, 2)}`
+    system: "你是小说改编流水线中的全局故事建模器。",
+    prompt: `基于章节摘要生成 characters, locations, timeline, conflicts, theme。人物 id 使用 char_001 格式，地点 id 使用 loc_001 格式，冲突 id 使用 conflict_001 格式。timeline 可用 conflict_ids 引用 conflicts，conflicts.related_timeline 必须引用 timeline.order。\n${JSON.stringify(
+      chapters,
+      null,
+      2
+    )}`
   });
 }
 
-async function buildSceneCandidates(provider: AiProvider | null, chapters: Chapter[], global: GlobalStory) {
+async function buildStoryStructure(provider: AiProvider | null, chapters: Chapter[], global: GlobalStory) {
+  if (!provider) return buildMockStoryStructure(chapters, global);
+  return provider.generateJson<StoryStructure>({
+    schemaName: "story_structure",
+    system: "你是小说改编流水线中的独立剧情结构建模器。",
+    prompt: `基于章节摘要和全局故事，输出稳定的 story_structure JSON。字段必须包含 premise, genre, logline, theme, main_conflict, dramatic_question, acts, conflicts, turning_points, character_arcs。source_chapters 和 source_chapter 只能引用已有章节 id，characters 和 character_arcs.character 只能引用已有人物 id。\n章节：${JSON.stringify(
+      chapters,
+      null,
+      2
+    )}\n全局故事：${JSON.stringify(global, null, 2)}`
+  });
+}
+
+async function buildSceneCandidates(
+  provider: AiProvider | null,
+  chapters: Chapter[],
+  global: GlobalStory,
+  storyStructure: StoryStructure
+) {
   if (!provider) return buildMockSceneCandidates(chapters, global);
   const response = await provider.generateJson<{ items: SceneCandidate[] }>({
     schemaName: "scene_candidates",
-    system: "You are the scene breakdown module in a novel-to-script adaptation pipeline.",
-    prompt: `Break each chapter into script scene candidates and output {"items": [...]}.
-Each item must include source_chapter, title, location, time, characters, conflict_ids, dramatic_function, beats.
-characters, location, and conflict_ids must reference existing ids from the global story.
-Chapters:
-${JSON.stringify(chapters, null, 2)}
-Global story:
-${JSON.stringify(global, null, 2)}`
+    system: "你是小说改编流水线中的场景拆分器。",
+    prompt: `请把每章拆分为剧本场景候选，输出 {"items": [...]}。角色、地点和 conflict_ids 必须引用已有 id。\n章节：${JSON.stringify(
+      chapters,
+      null,
+      2
+    )}\n全局故事：${JSON.stringify(global, null, 2)}\n剧情结构：${JSON.stringify(storyStructure, null, 2)}`
   });
   return response.items;
 }
@@ -257,15 +433,12 @@ async function buildScene(
   if (!provider) return buildMockScene(candidate, index, global);
   return provider.generateJson<Scene>({
     schemaName: "script_scene",
-    system: "You adapt novel scene candidates into structured script scenes.",
-    prompt: `Rewrite the scene candidate as a structured Scene JSON.
-The Scene must include id, title, source, setting, characters, conflict_ids, purpose, beats, script, and optional notes.
-script only allows action, dialogue, and transition. dialogue.character must reference a character id.
-conflict_ids must reference existing conflict ids.
-Candidate:
-${JSON.stringify(candidate, null, 2)}
-Global story:
-${JSON.stringify(global, null, 2)}`
+    system: "你是小说到影视剧本的改编器。",
+    prompt: `请把场景候选改写为结构化剧本 Scene JSON，必须包含 conflict_ids。script 只允许 action/dialogue/transition，dialogue.character 必须引用人物 id。\n候选：${JSON.stringify(
+      candidate,
+      null,
+      2
+    )}\n全局故事：${JSON.stringify(global, null, 2)}`
   });
 }
 
@@ -275,7 +448,7 @@ export async function runPipeline(input: PipelineInput) {
   const chapters = sourceChapters.length ? sourceChapters : splitChapters(input.text);
 
   if (chapters.length < 1) {
-    throw new Error("Please enter novel text first.");
+    throw new Error("请先输入小说文本");
   }
 
   const analyzedChapters = await Promise.all(
@@ -286,16 +459,25 @@ export async function runPipeline(input: PipelineInput) {
   );
 
   const global = await buildGlobalStory(provider, analyzedChapters);
-  const candidates = await buildSceneCandidates(provider, analyzedChapters, global);
-  const scenes = await Promise.all(candidates.map((candidate, index) => buildScene(provider, candidate, index, global)));
+  const storyStructure = await buildStoryStructure(provider, analyzedChapters, global);
+  const candidates = await buildSceneCandidates(provider, analyzedChapters, global, storyStructure);
+  const rawScenes = await Promise.all(candidates.map((candidate, index) => buildScene(provider, candidate, index, global)));
+  const scenes = rawScenes.map((scene, index) =>
+    normalizeScene(scene, index, {
+      chapterIds: analyzedChapters.map((chapter) => chapter.id),
+      characterIds: global.characters.map((character) => character.id),
+      conflictIds: global.conflicts.map((conflict) => conflict.id),
+      locationIds: global.locations.map((location) => location.id)
+    })
+  );
 
   const script: ScriptYaml = {
     metadata: {
-      title: input.title || "Untitled adaptation script",
-      author: input.author || "Original author",
+      title: input.title || "未命名小说改编剧本",
+      author: input.author || "原作者",
       generated_by: provider ? "ScriptForge AI" : "ScriptForge Mock Pipeline",
       version: "1.0",
-      style: "screen drama"
+      style: "影视剧"
     },
     source: {
       chapter_count: analyzedChapters.length,
@@ -309,6 +491,7 @@ export async function runPipeline(input: PipelineInput) {
     locations: global.locations,
     timeline: global.timeline,
     conflicts: global.conflicts,
+    story_structure: storyStructure,
     scenes
   };
 

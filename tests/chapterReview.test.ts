@@ -5,28 +5,28 @@ import type { Chapter, ScriptYaml } from "@/lib/types";
 const chapters: Chapter[] = [
   {
     id: "ch_001",
-    title: "Chapter 1",
-    text: "Body",
-    summary: "The message appears",
-    main_characters: ["Lin"],
-    locations: ["Cafe"],
-    key_events: ["Message arrives"]
+    title: "第一章 雨夜",
+    text: "正文",
+    summary: "雨夜线索出现",
+    main_characters: ["林晚"],
+    locations: ["咖啡馆"],
+    key_events: ["收到短信"]
   },
   {
     id: "ch_002",
-    title: "Chapter 2",
-    text: "Body",
-    summary: "The old case returns",
-    main_characters: ["Lin", "Zhou"],
-    locations: ["Station"],
-    key_events: ["Photo found"]
+    title: "第二章 旧案",
+    text: "正文",
+    summary: "旧案重启",
+    main_characters: ["林晚", "周沉"],
+    locations: ["车站"],
+    key_events: ["找到照片"]
   }
 ];
 
 const script: ScriptYaml = {
   metadata: {
-    title: "Rain case",
-    author: "Author",
+    title: "雨夜旧案",
+    author: "原作者",
     generated_by: "test",
     version: "1.0"
   },
@@ -37,42 +37,42 @@ const script: ScriptYaml = {
   characters: [
     {
       id: "char_001",
-      name: "Lin",
+      name: "林晚",
       role: "protagonist",
-      description: "Lead character"
+      description: "主角"
     }
   ],
   locations: [
     {
       id: "loc_001",
-      name: "Cafe",
+      name: "咖啡馆",
       type: "interior",
-      description: "Rainy room"
+      description: "雨夜空间"
     }
   ],
   timeline: [
-    { order: 1, chapter_id: "ch_001", event: "Message arrives", conflict_ids: ["conflict_001"] },
-    { order: 2, chapter_id: "ch_002", event: "Photo found", conflict_ids: ["conflict_002"] }
+    { order: 1, chapter_id: "ch_001", event: "收到短信", conflict_ids: ["conflict_001"] },
+    { order: 2, chapter_id: "ch_002", event: "找到照片", conflict_ids: ["conflict_002"] }
   ],
   conflicts: [
     {
       id: "conflict_001",
-      title: "Message mystery",
+      title: "短信逼近",
       type: "external",
-      description: "Lin faces the strange message.",
+      description: "林晚必须判断短信是否可信。",
       parties: ["char_001"],
-      stakes: "The clue may disappear.",
+      stakes: "错误判断会让线索断裂。",
       status: "active",
       source_chapters: ["ch_001"],
       related_timeline: [1]
     },
     {
       id: "conflict_002",
-      title: "Old case",
+      title: "旧案重启",
       type: "external",
-      description: "The old case changes direction.",
+      description: "旧案照片让调查重新失控。",
       parties: ["char_001"],
-      stakes: "The investigation may fail.",
+      stakes: "旧案真相可能再次被掩盖。",
       status: "active",
       source_chapters: ["ch_002"],
       related_timeline: [2]
@@ -81,33 +81,33 @@ const script: ScriptYaml = {
   scenes: [
     {
       id: "scene_001",
-      title: "Message clue",
+      title: "雨夜线索",
       source: { chapters: ["ch_001"] },
       setting: {
         location: "loc_001",
-        time: "Night",
-        atmosphere: "Suspenseful"
+        time: "夜晚",
+        atmosphere: "悬疑"
       },
       characters: ["char_001"],
       conflict_ids: ["conflict_001"],
-      purpose: "Introduce the clue",
-      beats: ["Message arrives"],
-      script: [{ type: "action", content: "Rain runs down the glass." }]
+      purpose: "引出线索",
+      beats: ["收到短信"],
+      script: [{ type: "action", content: "雨水滑落" }]
     },
     {
       id: "scene_002",
-      title: "Old case returns",
+      title: "旧案重启",
       source: { chapters: ["ch_002"] },
       setting: {
         location: "loc_001",
-        time: "Morning",
-        atmosphere: "Tense"
+        time: "清晨",
+        atmosphere: "紧张"
       },
       characters: ["char_001"],
       conflict_ids: ["conflict_002"],
-      purpose: "Move the investigation",
-      beats: ["Photo found"],
-      script: [{ type: "action", content: "The photo drops." }]
+      purpose: "推进调查",
+      beats: ["找到照片"],
+      script: [{ type: "action", content: "照片掉落" }]
     }
   ]
 };
@@ -120,12 +120,12 @@ describe("buildChapterReviewItems", () => {
     expect(items[0].chapter.id).toBe("ch_001");
     expect(items[0].yaml).toContain("scene_001");
     expect(items[0].yaml).toContain("conflict_001");
-    expect(items[0].yaml).not.toContain("scene_002");
     expect(items[0].yaml).not.toContain("conflict_002");
+    expect(items[0].yaml).not.toContain("scene_002");
     expect(items[1].chapter.id).toBe("ch_002");
     expect(items[1].yaml).toContain("scene_002");
     expect(items[1].yaml).toContain("conflict_002");
-    expect(items[1].yaml).not.toContain("scene_001");
     expect(items[1].yaml).not.toContain("conflict_001");
+    expect(items[1].yaml).not.toContain("scene_001");
   });
 });

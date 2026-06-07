@@ -365,7 +365,7 @@ h3 {
 
 .workflowSteps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -388,6 +388,17 @@ h3 {
 
 .workflowStep.locked {
   background: #f4f0e8;
+}
+
+.workflowStepContent {
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.stepToolbar {
+  justify-content: flex-start;
 }
 
 .workflowSteps span {
@@ -442,6 +453,7 @@ h3 {
 .summaryPane,
 .yamlPane,
 .chapterReviewPanel,
+.storyStructurePanel,
 .chapterLayout > section,
 .schemaLayout .panel {
   padding: 22px;
@@ -591,6 +603,31 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
+}
+
+.adminProviderGrid > label:nth-child(3) {
+  display: none;
+}
+
+.adminApiKeyControl {
+  margin-top: 14px;
+}
+
+.apiKeyControl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.apiKeyControl .ghostButton {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.secretHint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .inlineToggle {
@@ -1121,6 +1158,53 @@ dd {
   line-height: 1.55;
 }
 
+.storyStructureGrid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 14px;
+}
+
+.storyStructureGrid article {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf7;
+}
+
+.storyStructureGrid h3,
+.storyStructureGrid dl {
+  margin: 0;
+}
+
+.storyStructureGrid dt {
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.storyStructureGrid dd {
+  margin: 4px 0 0;
+  line-height: 1.55;
+}
+
+.compactList {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compactList li {
+  display: grid;
+  gap: 4px;
+}
+
+.compactList span {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 pre {
   overflow: auto;
   margin: 0;
@@ -1364,6 +1448,128 @@ pre {
   line-height: 1.6;
 }
 
+.videoChainPanel {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.videoChainPanel .sectionHeader p:not(.eyebrow) {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.resultTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f3ec;
+}
+
+.resultTabs button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.resultTabs button.active,
+.resultTabs button:hover {
+  border-color: #bdd7ce;
+  background: #eef8f4;
+  color: var(--accent);
+}
+
+.visualEditor,
+.sceneEditorList,
+.scriptLineList,
+.revisionPanel,
+.revisionLogList {
+  display: grid;
+  gap: 14px;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sceneEditorCard,
+.videoChainCard,
+.revisionLogList article {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.visualEditor textarea,
+.videoChainCard textarea,
+.revisionPanel textarea {
+  min-height: 96px;
+  font-size: 13px;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.videoChainCard {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.videoPreviewBox {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #fbfaf7;
+}
+
+.videoPreviewBox span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.videoPreviewBox video {
+  width: 100%;
+  min-height: 140px;
+  border-radius: 8px;
+  background: #111;
+}
+
+.revisionLogList article {
+  display: grid;
+  gap: 4px;
+}
+
+.revisionLogList span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.revisionLogList p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 @media (max-width: 1040px) {
   .shell,
   .inputGrid,
@@ -1376,9 +1582,12 @@ pre {
   .chapterLayout,
   .chapterReviewCard,
   .resultLayout,
+  .storyStructureGrid,
   .versionsPage,
   .usersPage,
   .adminProviderGrid,
+  .fieldGrid,
+  .cardGrid,
   .schemaLayout {
     grid-template-columns: 1fr;
   }

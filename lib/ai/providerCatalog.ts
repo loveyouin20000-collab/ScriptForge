@@ -1,11 +1,13 @@
-﻿import type { ManagedProviderConfig, ProviderConfig } from "../types";
+import type { ManagedProviderConfig, ProviderConfig } from "../types";
+
+const API_KEY_FIELD = "apiKey";
 
 export const defaultManagedProviders: ManagedProviderConfig[] = [
   {
     vendor: "openai",
     label: "OpenAI",
     baseUrl: "https://api.openai.com/v1",
-    credential: "",
+    apiKey: "",
     models: ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"],
     enabled: true
   },
@@ -13,23 +15,23 @@ export const defaultManagedProviders: ManagedProviderConfig[] = [
     vendor: "deepseek",
     label: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
-    credential: "",
+    apiKey: "",
     models: ["deepseek-chat", "deepseek-reasoner"],
     enabled: true
   },
   {
     vendor: "tongyi",
-    label: "Tongyi Qianwen",
+    label: "通义千问",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    credential: "",
+    apiKey: "",
     models: ["qwen-plus", "qwen-turbo", "qwen-max"],
     enabled: true
   },
   {
     vendor: "custom",
-    label: "Custom compatible API",
+    label: "自定义兼容接口",
     baseUrl: "",
-    credential: "",
+    apiKey: "",
     models: [],
     enabled: false
   }
@@ -40,7 +42,7 @@ function normalizeManagedProvider(item: ManagedProviderConfig): ManagedProviderC
     vendor: item.vendor,
     label: item.label,
     baseUrl: item.baseUrl,
-    credential: item.credential,
+    apiKey: item.apiKey,
     models: item.models,
     enabled: item.enabled
   };
@@ -59,7 +61,7 @@ export function parseManagedProviders(value: string | null): ManagedProviderConf
         ["openai", "deepseek", "tongyi", "custom"].includes(item.vendor) &&
         typeof item.label === "string" &&
         typeof item.baseUrl === "string" &&
-        typeof item.credential === "string" &&
+        typeof item.apiKey === "string" &&
         Array.isArray(item.models) &&
         item.models.every((model: unknown) => typeof model === "string") &&
         typeof item.enabled === "boolean"
@@ -76,6 +78,33 @@ export function serializeManagedProviders(providers: ManagedProviderConfig[]) {
   return JSON.stringify(providers.map(normalizeManagedProvider));
 }
 
+export function saveManagedProviderApiKey(
+  providers: ManagedProviderConfig[],
+  vendor: ManagedProviderConfig["vendor"],
+  apiKey: string
+) {
+  const trimmedApiKey = apiKey.trim();
+  if (!trimmedApiKey) return providers;
+
+  return providers.map((provider) => {
+    if (provider.vendor !== vendor || provider.apiKey) return provider;
+    return {
+      ...provider,
+      [API_KEY_FIELD]: trimmedApiKey
+    };
+  });
+}
+
+export function deleteManagedProviderApiKey(providers: ManagedProviderConfig[], vendor: ManagedProviderConfig["vendor"]) {
+  return providers.map((provider) => {
+    if (provider.vendor !== vendor) return provider;
+    return {
+      ...provider,
+      apiKey: ""
+    };
+  });
+}
+
 export function resolveProviderConfig(
   selection: ProviderConfig,
   providers: ManagedProviderConfig[]
@@ -86,7 +115,7 @@ export function resolveProviderConfig(
       provider.vendor === selection.vendor &&
       Boolean(selection.model) &&
       provider.models.includes(selection.model ?? "") &&
-      Boolean(provider.credential) &&
+      Boolean(provider.apiKey) &&
       Boolean(provider.baseUrl)
   );
 
@@ -101,7 +130,7 @@ export function resolveProviderConfig(
   return {
     vendor: selected.vendor,
     baseUrl: selected.baseUrl,
-    credential: selected.credential,
+    apiKey: selected.apiKey,
     model: selection.model
   };
 }

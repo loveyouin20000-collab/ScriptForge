@@ -12,7 +12,7 @@ export type AiProvider = {
 
 export function hasRemoteConfig(config?: ProviderConfig) {
   if (config?.vendor === "mock") return false;
-  if (!config?.credential || !config?.model) return false;
+  if (!config?.apiKey || !config?.model) return false;
   if (config.vendor === "custom" && !config.baseUrl) return false;
   return true;
 }

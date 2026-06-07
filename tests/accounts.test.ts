@@ -38,7 +38,7 @@ describe("accounts", () => {
       DEFAULT_ACCOUNTS,
       {
         username: "editor",
-        passphrase: "pass123",
+        password: "pass123",
         role: "user",
         status: "active"
       },
@@ -50,12 +50,12 @@ describe("accounts", () => {
 
     const updated = updateAccount(created, created[2].id, {
       username: "manager",
-      passphrase: "newpass",
+      password: "newpass",
       role: "admin",
       status: "disabled"
     });
 
-    expect(updated[2]).toMatchObject({ username: "manager", passphrase: "newpass", role: "admin", status: "disabled" });
+    expect(updated[2]).toMatchObject({ username: "manager", password: "newpass", role: "admin", status: "disabled" });
     expect(parseAccounts(serializeAccounts(updated))).toEqual(updated);
     expect(deleteAccount(updated, updated[2].id)).toEqual(DEFAULT_ACCOUNTS);
   });
@@ -66,7 +66,7 @@ describe("accounts", () => {
         {
           id: "legacy",
           username: "legacy",
-          passphrase: "pass",
+          password: "pass",
           role: "user",
           status: "active",
           createdAt: "2026-06-06T10:00:00.000Z"
@@ -99,7 +99,7 @@ describe("accounts", () => {
     expect(
       createAccount(DEFAULT_ACCOUNTS, {
         username: "admin",
-        passphrase: "pass123",
+        password: "pass123",
         role: "user",
         status: "active"
       })

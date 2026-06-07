@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { GenerateJsonRequest } from "@/lib/ai/provider";
-import { chaptersFromManualText, parseChaptersWithProvider, splitChapters } from "@/lib/chapterSplitter";
+import {
+  chaptersFromManualText,
+  parseChaptersWithProvider,
+  parseChaptersWithProviderResult,
+  splitChapters
+} from "@/lib/chapterSplitter";
 
 describe("splitChapters", () => {
   it("splits Chinese numeric chapter titles", () => {
@@ -56,6 +61,21 @@ describe("parseChaptersWithProvider", () => {
     expect(chapters).toEqual([
       { id: "ch_001", title: "AI 识别第一章", text: "第一段内容" },
       { id: "ch_002", title: "AI 识别第二章", text: "第二段内容" }
+    ]);
+  });
+
+  it("falls back to local splitting when the remote provider fails", async () => {
+    const result = await parseChaptersWithProviderResult("第一章 雨夜\n正文一\n第二章 旧案\n正文二", {
+      async generateJson() {
+        throw new Error("remote failed");
+      }
+    });
+
+    expect(result.source).toBe("local_fallback");
+    expect(result.fallbackReason).toBe("remote failed");
+    expect(result.chapters).toEqual([
+      { id: "ch_001", title: "第一章 雨夜", text: "正文一" },
+      { id: "ch_002", title: "第二章 旧案", text: "正文二" }
     ]);
   });
 });
