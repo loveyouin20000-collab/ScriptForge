@@ -95,14 +95,52 @@ export function chaptersFromManualText(text: string): Chapter[] {
     });
 }
 
-export async function parseChaptersWithProvider(text: string, provider?: AiProvider | null): Promise<Chapter[]> {
-  if (!provider) return splitChapters(text);
+export type ChapterParseSource = "local" | "remote" | "local_fallback";
 
-  const response = await provider.generateJson<{ chapters: Array<Partial<Chapter>> }>({
-    schemaName: "chapter_split",
-    system: "你是小说改编流水线中的章节边界识别器。",
-    prompt: `请将以下小说正文拆分为章节，输出 JSON：{"chapters":[{"title":"章节标题","text":"章节正文"}]}。如果原文没有明确章节标题，请根据情节自然分段，但不要改写原文内容。\n小说正文：\n${text}`
-  });
-  const chapters = normalizeChapters(response.chapters ?? []);
-  return chapters.length ? chapters : splitChapters(text);
+export type ChapterParseResult = {
+  chapters: Chapter[];
+  source: ChapterParseSource;
+  fallbackReason?: string;
+};
+
+export async function parseChaptersWithProviderResult(
+  text: string,
+  provider?: AiProvider | null
+): Promise<ChapterParseResult> {
+  if (!provider) {
+    return {
+      chapters: splitChapters(text),
+      source: "local"
+    };
+  }
+
+  try {
+    const response = await provider.generateJson<{ chapters: Array<Partial<Chapter>> }>({
+      schemaName: "chapter_split",
+      system: "你是小说改编流水线中的章节边界识别器。",
+      prompt: `请将以下小说正文拆分为章节，输出 JSON：{"chapters":[{"title":"章节标题","text":"章节正文"}]}。如果原文没有明确章节标题，请根据情节自然分段，但不要改写原文内容。\n小说正文：\n${text}`
+    });
+    const chapters = normalizeChapters(response.chapters ?? []);
+    if (chapters.length) {
+      return {
+        chapters,
+        source: "remote"
+      };
+    }
+    return {
+      chapters: splitChapters(text),
+      source: "local_fallback",
+      fallbackReason: "AI 未返回有效章节结构"
+    };
+  } catch (error) {
+    return {
+      chapters: splitChapters(text),
+      source: "local_fallback",
+      fallbackReason: error instanceof Error ? error.message : "远程章节解析失败"
+    };
+  }
+}
+
+export async function parseChaptersWithProvider(text: string, provider?: AiProvider | null): Promise<Chapter[]> {
+  return (await parseChaptersWithProviderResult(text, provider)).chapters;
 }

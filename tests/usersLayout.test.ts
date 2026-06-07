@@ -34,4 +34,12 @@ describe("users admin layout", () => {
     expect(userTableIndex).toBeGreaterThan(userFormIndex);
     expect(getCssRule(".userManagementStack")).toMatch(/grid-template-columns:\s*1fr;/);
   });
+
+  it("renders api key save and delete controls for managed providers", () => {
+    expect(pageSource).toContain('className="apiKeyControl"');
+    expect(pageSource).toContain("API Key 已保存，删除后可重新添加");
+    expect(pageSource).toContain("API Key 仅保存在本机浏览器 localStorage，不会写入源码或提交到 GitHub。");
+    expect(pageSource).toContain("saveManagedProviderApiKey");
+    expect(pageSource).toContain("deleteManagedProviderApiKey");
+  });
 });
