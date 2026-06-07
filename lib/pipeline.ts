@@ -38,6 +38,13 @@ type SceneCandidate = {
   beats: string[];
 };
 
+type SceneNormalizationRefs = {
+  chapterIds: string[];
+  characterIds: string[];
+  conflictIds: string[];
+  locationIds: string[];
+};
+
 function sentenceFrom(text: string, max = 80) {
   return text.replace(/\s+/g, " ").trim().slice(0, max) || "本章围绕主要人物的选择与冲突展开。";
 }
@@ -289,6 +296,76 @@ function buildMockScene(candidate: SceneCandidate, index: number, global: Global
   };
 }
 
+function existingList(values: unknown, allowed: string[], fallback: string[]) {
+  if (!Array.isArray(values)) return fallback;
+  const cleaned = values.filter((value): value is string => typeof value === "string" && allowed.includes(value));
+  return cleaned.length ? cleaned : fallback;
+}
+
+export function normalizeScene(input: unknown, index: number, refs: SceneNormalizationRefs): Scene {
+  const scene = input && typeof input === "object" ? (input as Partial<Scene>) : {};
+  const fallbackChapter = refs.chapterIds[0] ?? "ch_001";
+  const fallbackCharacter = refs.characterIds[0] ?? "char_001";
+  const fallbackConflict = refs.conflictIds[0] ?? "conflict_001";
+  const fallbackLocation = refs.locationIds[0] ?? "loc_001";
+  const setting = scene.setting && typeof scene.setting === "object" ? scene.setting : undefined;
+  const source = scene.source && typeof scene.source === "object" ? scene.source : undefined;
+  const scriptLines = Array.isArray(scene.script) ? scene.script : [];
+  const script = scriptLines
+    .map((line) => {
+      if (!line || typeof line !== "object") return null;
+      if (line.type === "dialogue") {
+        return {
+          type: "dialogue" as const,
+          character:
+            typeof line.character === "string" && refs.characterIds.includes(line.character)
+              ? line.character
+              : fallbackCharacter,
+          content: typeof line.content === "string" && line.content.trim() ? line.content : "待补充对白"
+        };
+      }
+      return {
+        type: line.type === "transition" ? ("transition" as const) : ("action" as const),
+        content: typeof line.content === "string" && line.content.trim() ? line.content : "待补充动作"
+      };
+    })
+    .filter((line): line is Scene["script"][number] => Boolean(line));
+
+  return {
+    id: typeof scene.id === "string" && scene.id.trim() ? scene.id : idFrom("scene", index),
+    title: typeof scene.title === "string" && scene.title.trim() ? scene.title : `场景${index + 1}`,
+    source: {
+      chapters: existingList(source?.chapters, refs.chapterIds, [fallbackChapter]),
+      original_range: source?.original_range
+    },
+    setting: {
+      location:
+        typeof setting?.location === "string" && refs.locationIds.includes(setting.location)
+          ? setting.location
+          : fallbackLocation,
+      time: typeof setting?.time === "string" && setting.time.trim() ? setting.time : "连续时间",
+      atmosphere:
+        typeof setting?.atmosphere === "string" && setting.atmosphere.trim() ? setting.atmosphere : "紧张、克制"
+    },
+    characters: existingList(scene.characters, refs.characterIds, [fallbackCharacter]),
+    conflict_ids: existingList(scene.conflict_ids, refs.conflictIds, [fallbackConflict]),
+    purpose: typeof scene.purpose === "string" && scene.purpose.trim() ? scene.purpose : "推进剧情并明确人物目标",
+    beats:
+      Array.isArray(scene.beats) && scene.beats.some((beat) => typeof beat === "string" && beat.trim())
+        ? scene.beats.filter((beat): beat is string => typeof beat === "string" && beat.trim().length > 0)
+        : ["人物进入场景", "关键线索出现"],
+    script: script.length
+      ? script
+      : [
+          {
+            type: "action",
+            content: "人物进入场景，新的线索推动剧情继续发展。"
+          }
+        ],
+    notes: scene.notes
+  };
+}
+
 function providerFrom(input: PipelineInput): AiProvider | null {
   return hasRemoteConfig(input.provider) ? new OpenAiCompatibleProvider(input.provider ?? {}) : null;
 }
@@ -384,7 +461,15 @@ export async function runPipeline(input: PipelineInput) {
   const global = await buildGlobalStory(provider, analyzedChapters);
   const storyStructure = await buildStoryStructure(provider, analyzedChapters, global);
   const candidates = await buildSceneCandidates(provider, analyzedChapters, global, storyStructure);
-  const scenes = await Promise.all(candidates.map((candidate, index) => buildScene(provider, candidate, index, global)));
+  const rawScenes = await Promise.all(candidates.map((candidate, index) => buildScene(provider, candidate, index, global)));
+  const scenes = rawScenes.map((scene, index) =>
+    normalizeScene(scene, index, {
+      chapterIds: analyzedChapters.map((chapter) => chapter.id),
+      characterIds: global.characters.map((character) => character.id),
+      conflictIds: global.conflicts.map((conflict) => conflict.id),
+      locationIds: global.locations.map((location) => location.id)
+    })
+  );
 
   const script: ScriptYaml = {
     metadata: {

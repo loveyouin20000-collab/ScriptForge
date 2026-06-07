@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { OpenAiCompatibleProvider } from "@/lib/ai/openaiProvider";
 import { hasRemoteConfig } from "@/lib/ai/provider";
-import { parseChaptersWithProvider } from "@/lib/chapterSplitter";
+import { parseChaptersWithProviderResult } from "@/lib/chapterSplitter";
 import type { ProviderConfig } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -19,9 +19,9 @@ export async function POST(request: Request) {
     }
 
     const provider = hasRemoteConfig(body.provider) ? new OpenAiCompatibleProvider(body.provider ?? {}) : null;
-    const chapters = await parseChaptersWithProvider(body.text, provider);
+    const result = await parseChaptersWithProviderResult(body.text, provider);
 
-    return NextResponse.json({ chapters });
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       {

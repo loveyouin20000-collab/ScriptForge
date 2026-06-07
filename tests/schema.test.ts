@@ -133,6 +133,71 @@ describe("validateScriptYaml", () => {
     expect(result.data?.story_structure?.acts[0].id).toBe("act_001");
   });
 
+  it("accepts storyboard, video prompts, video tasks and revision log fields", () => {
+    const script = validScript();
+    script.storyboard = {
+      shots: [
+        {
+          id: "shot_scene_001_001",
+          scene_id: "scene_001",
+          source_script_index: 0,
+          description: "雨夜咖啡馆内，林晚抬头看向门口。",
+          camera: "static",
+          framing: "medium",
+          movement: "slow push-in",
+          duration_seconds: 4,
+          visual_style: "悬疑短剧，低饱和，雨夜反光",
+          characters: ["char_001"],
+          location: "loc_001"
+        }
+      ]
+    };
+    script.video_prompts = [
+      {
+        id: "prompt_shot_scene_001_001",
+        shot_id: "shot_scene_001_001",
+        positive: "悬疑短剧，雨夜咖啡馆，中景，慢慢推进，林晚看向门口",
+        negative: "低清晰度，畸变，字幕，水印",
+        model_notes: "保持 16:9 横屏构图。",
+        duration_seconds: 4,
+        aspect_ratio: "16:9"
+      }
+    ];
+    script.video_tasks = [
+      {
+        id: "video_task_001",
+        prompt_id: "prompt_shot_scene_001_001",
+        provider: "mock",
+        status: "succeeded",
+        request: {
+          prompt: "悬疑短剧，雨夜咖啡馆，中景，慢慢推进，林晚看向门口",
+          duration_seconds: 4,
+          aspect_ratio: "16:9"
+        },
+        result_url: "mock-video://video_task_001.mp4",
+        thumbnail_url: "mock-video://video_task_001.jpg",
+        created_at: "2026-06-07T10:00:00.000Z",
+        updated_at: "2026-06-07T10:00:01.000Z"
+      }
+    ];
+    script.revision_log = [
+      {
+        id: "revision_001",
+        scope: { type: "shot", id: "shot_scene_001_001" },
+        feedback: "镜头更贴近窗外雨滴。",
+        action: "updated_shot",
+        created_at: "2026-06-07T10:00:02.000Z"
+      }
+    ];
+
+    const result = validateScriptYaml(script);
+
+    expect(result.valid).toBe(true);
+    expect(result.data?.storyboard?.shots[0].id).toBe("shot_scene_001_001");
+    expect(result.data?.video_prompts?.[0].shot_id).toBe("shot_scene_001_001");
+    expect(result.data?.video_tasks?.[0].prompt_id).toBe("prompt_shot_scene_001_001");
+  });
+
   it("reports missing required fields", () => {
     const script = validScript() as unknown as Record<string, unknown>;
     delete script.metadata;
@@ -259,5 +324,61 @@ describe("validateScriptYaml", () => {
     expect(result.issues.some((issue) => issue.path === "story_structure.conflicts.0.characters.0")).toBe(true);
     expect(result.issues.some((issue) => issue.path === "story_structure.turning_points.0.source_chapter")).toBe(true);
     expect(result.issues.some((issue) => issue.path === "story_structure.character_arcs.0.character")).toBe(true);
+  });
+
+  it("reports invalid storyboard and video chain references", () => {
+    const script = validScript();
+    script.storyboard = {
+      shots: [
+        {
+          id: "shot_scene_missing_001",
+          scene_id: "scene_missing",
+          source_script_index: 0,
+          description: "错误场景引用",
+          camera: "static",
+          framing: "medium",
+          movement: "slow push-in",
+          duration_seconds: 4,
+          visual_style: "悬疑短剧",
+          characters: ["char_missing"],
+          location: "loc_missing"
+        }
+      ]
+    };
+    script.video_prompts = [
+      {
+        id: "prompt_missing",
+        shot_id: "shot_missing",
+        positive: "错误镜头引用",
+        negative: "低清晰度",
+        model_notes: "保持横屏。",
+        duration_seconds: 4,
+        aspect_ratio: "16:9"
+      }
+    ];
+    script.video_tasks = [
+      {
+        id: "video_task_001",
+        prompt_id: "prompt_missing_target",
+        provider: "mock",
+        status: "queued",
+        request: {
+          prompt: "错误 prompt 引用",
+          duration_seconds: 4,
+          aspect_ratio: "16:9"
+        },
+        created_at: "2026-06-07T10:00:00.000Z",
+        updated_at: "2026-06-07T10:00:00.000Z"
+      }
+    ];
+
+    const result = validateScriptYaml(script);
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((issue) => issue.path === "storyboard.shots.0.scene_id")).toBe(true);
+    expect(result.issues.some((issue) => issue.path === "storyboard.shots.0.characters.0")).toBe(true);
+    expect(result.issues.some((issue) => issue.path === "storyboard.shots.0.location")).toBe(true);
+    expect(result.issues.some((issue) => issue.path === "video_prompts.0.shot_id")).toBe(true);
+    expect(result.issues.some((issue) => issue.path === "video_tasks.0.prompt_id")).toBe(true);
   });
 });

@@ -76,6 +76,33 @@ export function serializeManagedProviders(providers: ManagedProviderConfig[]) {
   return JSON.stringify(providers.map(normalizeManagedProvider));
 }
 
+export function saveManagedProviderApiKey(
+  providers: ManagedProviderConfig[],
+  vendor: ManagedProviderConfig["vendor"],
+  apiKey: string
+) {
+  const trimmedApiKey = apiKey.trim();
+  if (!trimmedApiKey) return providers;
+
+  return providers.map((provider) => {
+    if (provider.vendor !== vendor || provider.apiKey) return provider;
+    return {
+      ...provider,
+      apiKey: trimmedApiKey
+    };
+  });
+}
+
+export function deleteManagedProviderApiKey(providers: ManagedProviderConfig[], vendor: ManagedProviderConfig["vendor"]) {
+  return providers.map((provider) => {
+    if (provider.vendor !== vendor) return provider;
+    return {
+      ...provider,
+      apiKey: ""
+    };
+  });
+}
+
 export function resolveProviderConfig(
   selection: ProviderConfig,
   providers: ManagedProviderConfig[]

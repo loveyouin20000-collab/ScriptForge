@@ -9,14 +9,18 @@ https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3
 
 ## 当前代码结果
 
-已完成一个 Next.js 单体 MVP，包含前端工作台、后端 API 路由、AI provider 抽象、mock 兜底流水线、YAML 校验与导出能力。
+已完成一个 Next.js 单体 MVP，包含前端工作台、后端 API 路由、AI provider 抽象、mock 兜底流水线、九步门禁工作流、作者可视化编辑、分镜与视频链路、YAML 校验与导出能力。
 
 核心页面：
 
 - 项目输入：填写小说标题、作者，粘贴文本或上传 `.txt` / `.md` 文件。
-- 大模型服务商模块：独立于流水线配置 AI 服务商、模型和 API Key。
+- 大模型服务商模块：管理员统一维护 AI 服务商、模型和 API Key；API Key 本地保存，不写入源码。
 - 章节解析：自动识别章节，并支持手动调整章节边界。
-- 改编结果：展示章节理解结果，编辑 YAML，校验、修复、复制和下载。
+- 改编流程：按项目输入、章节解析、改编结果、剧本编辑、分镜、视频任务、Prompt、反馈回写、YAML 共 9 步推进。
+- 改编结果：展示章节理解结果和剧情结构概览，并作为后续编辑链路入口。
+- 剧本编辑：字段级编辑标题、作者、风格、场景和剧本行。
+- 分镜 / Prompt / 视频任务：生成分镜 YAML、视频模型 Prompt，并提交 mock 视频任务。
+- 反馈回写：按 scene、shot、prompt 或 video task 记录作者反馈并回写同一份 YAML。
 - Schema 文档：说明 YAML 字段结构、设计原因和示例。
 - 会员服务：展示免费版、Pro 版和按生成次数收费的商业化方案。
 
@@ -40,10 +44,18 @@ https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3
 | 下载 Markdown 剧本文档 | 已实现 |
 | Schema 文档页 | 已实现 |
 | 会员服务页面 | 已实现免费版、Pro 版、次数包、对比表和 FAQ |
+| 作者字段级可视化编辑 | 已实现，作为第 4 步嵌入改编流程 |
+| 分镜 YAML 生成 | 已实现 `storyboard.shots` |
+| 视频 Prompt 生成 | 已实现 `video_prompts` |
+| 视频任务提交与预览 | 已实现 mock provider、任务状态刷新和结果 URL 回写 |
+| 作者反馈回写 | 已实现 `revision_log`，支持 scene / shot / prompt / video task scope |
+| 逐步保存门禁 | 已实现，每一步保存后才能进入下一步；编辑或生成会重新变为未保存 |
+| 远程章节解析失败兜底 | 已实现，DeepSeek/OpenAI-compatible 调用失败时回退本地章节规则并提示用户 |
+| API Key 安全提示 | 已实现，API Key 仅保存在浏览器 localStorage，不写入源码或提交到 GitHub |
 
 ## AI 服务商配置
 
-大模型服务商模块独立于小说输入和流水线本身。用户先选择服务商，再填写模型和 API Key。
+大模型服务商模块独立于小说输入和流水线本身。管理员统一维护服务商、兼容接口地址、模型列表和 API Key；普通用户只选择已启用的服务商与模型。
 
 支持选项：
 
@@ -58,6 +70,10 @@ https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3
 - 选择自定义兼容接口时，兼容接口地址和模型会清空，避免沿用上一家服务商配置。
 - 模型或 API Key 留空时，系统使用本地 mock provider，不调用外部 LLM。
 - 自定义兼容接口必须填写 Base URL、模型和 API Key 才会触发远程调用。
+- API Key 保存后输入框锁定，不能直接编辑；必须先删除，再重新添加。
+- API Key 只保存在本机浏览器 `localStorage`，不会写入源码文件，也不会提交到 GitHub。
+- 仓库 `.gitignore` 已排除 `.env*`，保留 `.env.example`。
+- 章节解析优先使用远程模型；如果远程调用失败，会回退本地章节规则，并在页面状态栏提示“远程章节解析失败，已使用本地规则”。
 
 远程调用使用 OpenAI-compatible 格式：
 
@@ -77,6 +93,10 @@ https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3
 - `conflicts`：一等冲突模型，记录冲突标题、类型、参与人物、利害关系、来源章节和相关时间线。
 - `story_structure`：独立剧情结构模型，包含 premise、genre、logline、theme、main_conflict、dramatic_question、acts、conflicts、turning_points 和 character_arcs；新 pipeline 默认生成，schema 中保持可选以兼容旧 YAML。
 - `scenes`：结构化剧本场景，包含来源章节、时间地点、人物、冲突引用、目的、节拍、动作、对白和改编策略。
+- `storyboard`：分镜结构，包含 shot id、scene 引用、脚本行索引、镜头描述、机位、景别、运动、时长、视觉风格、角色和地点。
+- `video_prompts`：按 shot 生成的视频模型 Prompt，包含 positive、negative、model notes、时长和画幅比例。
+- `video_tasks`：视频任务记录，包含 provider、状态、请求内容、结果 URL、缩略图 URL、错误信息和更新时间。
+- `revision_log`：作者反馈回写记录，包含反馈 scope、内容、动作和时间。
 
 校验内容包括：
 
@@ -90,6 +110,11 @@ https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3
 - `conflict.related_timeline` 是否引用已存在时间线顺序。
 - `timeline.conflict_ids` 和 `scene.conflict_ids` 是否引用已存在冲突。
 - `story_structure` 中的章节引用和人物引用是否存在。
+- `storyboard.shots.scene_id` 是否引用已存在场景。
+- `storyboard.shots.characters` 和 `storyboard.shots.location` 是否引用已存在人物和地点。
+- `video_prompts.shot_id` 是否引用已存在 shot。
+- `video_tasks.prompt_id` 是否引用已存在 prompt。
+- `revision_log.scope` 是否引用已存在 scene、shot、prompt 或 video task。
 
 ## 会员服务设计
 
@@ -131,7 +156,13 @@ Pro 版：
 
 后端 API 路由：
 
+- `POST /api/chapters/parse`：章节解析；远程模型失败时回退本地规则，并返回解析来源。
 - `POST /api/pipeline/start`：运行小说改编流水线。
+- `POST /api/storyboard/generate`：根据剧本 YAML 生成分镜 YAML。
+- `POST /api/video-prompts/generate`：根据分镜生成视频 Prompt。
+- `POST /api/video/tasks`：提交 mock 视频任务并写回 YAML。
+- `GET /api/video/tasks/[id]`：刷新 mock 视频任务状态。
+- `POST /api/revisions/apply`：按反馈 scope 局部回写 YAML。
 - `POST /api/yaml/validate`：校验 YAML 结构和引用。
 - `POST /api/yaml/fix`：修复基础 YAML 结构问题。
 
@@ -301,7 +332,7 @@ npm.cmd run build
 
 当前验证状态：
 
-- `npm.cmd test`：10 tests passed
+- `npm.cmd test`：62 tests passed
 - `npm.cmd run build`：通过
 
 ## 发布流程
@@ -447,13 +478,19 @@ Rules:
 
 ### Workflow And YAML Version Management
 
-The adaptation workflow is organized into three gated steps:
+The adaptation workflow is organized into nine gated steps:
 
 1. Project input
 2. Chapter parsing
 3. Adaptation result
+4. Script editing
+5. Storyboard
+6. Video tasks
+7. Prompt
+8. Revision write-back
+9. YAML
 
-Users must start from step 1 and move forward with the workflow buttons. Later steps are not directly editable until previous steps are completed.
+Users must start from step 1 and move forward with the workflow buttons. Each step must be saved before the next step becomes available. Editing fields, generating storyboard or prompts, submitting video tasks, refreshing task state, applying feedback, or editing YAML marks the current step as unsaved again.
 
 The merged YAML result now supports:
 
@@ -464,6 +501,39 @@ The merged YAML result now supports:
 - Deleting saved versions.
 
 Saved YAML versions are stored in browser local storage and keep the most recent version history for the local prototype.
+
+### Visual Editing And Video Chain
+
+The result workflow now includes the author-facing editing and video chain inside the same stepper instead of a separate module.
+
+Implemented capabilities:
+
+- Card-style script editing for metadata, scenes, and script lines.
+- Deterministic storyboard generation from `scenes.script`.
+- Video prompt generation from storyboard, scene, character, and location context.
+- Mock video provider with task submission, status refresh, result URL, and thumbnail URL fields.
+- Feedback write-back for scene, shot, prompt, and video task scopes.
+- Structured YAML write-back for storyboard, prompts, tasks, and revision logs.
+
+### API Key Management
+
+Admin-managed provider API keys are intentionally local prototype data:
+
+- API keys are stored in browser `localStorage`.
+- API keys are not written to source files.
+- API keys are not committed to GitHub.
+- Saved keys are locked in the UI; deleting a key is required before adding a replacement.
+- The repository ignores `.env*` files, except `.env.example`.
+
+### Remote Failure Fallback
+
+The chapter parsing step now reports which parser was used:
+
+- `remote`: remote OpenAI-compatible model succeeded.
+- `local`: no remote provider was configured, so local chapter rules were used.
+- `local_fallback`: remote parsing failed or returned invalid structure, so local rules were used.
+
+When fallback happens, the workflow status tells the user that the remote parser failed and local rules were used.
 
 ### LLM Provider And Membership
 
