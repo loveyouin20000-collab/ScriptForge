@@ -39,9 +39,31 @@ timeline:
   - order: 1
     chapter_id: ch_001
     event: 林晚收到神秘短信
+    conflict_ids:
+      - conflict_001
+    impact: 引出主线冲突
   - order: 2
     chapter_id: ch_001
     event: 周沉出现
+    conflict_ids:
+      - conflict_001
+    impact: 推动冲突升级
+
+conflicts:
+  - id: conflict_001
+    title: 神秘短信引发的对峙
+    type: external
+    description: 林晚收到短信后，必须判断周沉是否与父亲失踪有关。
+    parties:
+      - char_001
+      - char_002
+    stakes: 如果林晚判断失误，旧案线索会再次断裂。
+    status: active
+    source_chapters:
+      - ch_001
+    related_timeline:
+      - 1
+      - 2
 
 scenes:
   - id: scene_001
@@ -56,6 +78,8 @@ scenes:
     characters:
       - char_001
       - char_002
+    conflict_ids:
+      - conflict_001
     purpose: 引出主线悬念
     beats:
       - 林晚独自等待
@@ -108,7 +132,17 @@ AI 改编时有没有遗漏？
 
 timeline 可以帮助作者检查剧情顺序，也能帮助 AI 生成更连贯的剧本。
 
-6. 为什么 scenes 里要有 beats？
+6. 为什么要单独抽 conflicts？
+
+冲突是人物行动、场景节拍和剧情推进之间的连接点。
+
+把 conflicts 放在顶层后：
+
+人物、场景和时间线可以通过 conflict id 共享同一个冲突定义
+作者能检查冲突是否贯穿多个章节
+后续分镜、局部重写和视频 prompt 可以明确知道每场戏要表现的矛盾
+
+7. 为什么 scenes 里要有 beats？
 
 因为直接生成完整剧本容易跑偏。
 
@@ -121,7 +155,7 @@ timeline 可以帮助作者检查剧情顺序，也能帮助 AI 生成更连贯�
 
 再生成对白和动作，会更稳定。
 
-7. 为什么 script 要区分 action / dialogue / transition？
+8. 为什么 script 要区分 action / dialogue / transition？
 
 因为剧本不是普通文章，需要结构化表达。
 

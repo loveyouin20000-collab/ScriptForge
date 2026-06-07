@@ -51,8 +51,32 @@ const script: ScriptYaml = {
     }
   ],
   timeline: [
-    { order: 1, chapter_id: "ch_001", event: "收到短信" },
-    { order: 2, chapter_id: "ch_002", event: "找到照片" }
+    { order: 1, chapter_id: "ch_001", event: "收到短信", conflict_ids: ["conflict_001"] },
+    { order: 2, chapter_id: "ch_002", event: "找到照片", conflict_ids: ["conflict_002"] }
+  ],
+  conflicts: [
+    {
+      id: "conflict_001",
+      title: "短信逼近",
+      type: "external",
+      description: "林晚必须判断短信是否可信。",
+      parties: ["char_001"],
+      stakes: "错误判断会让线索断裂。",
+      status: "active",
+      source_chapters: ["ch_001"],
+      related_timeline: [1]
+    },
+    {
+      id: "conflict_002",
+      title: "旧案重启",
+      type: "external",
+      description: "旧案照片让调查重新失控。",
+      parties: ["char_001"],
+      stakes: "旧案真相可能再次被掩盖。",
+      status: "active",
+      source_chapters: ["ch_002"],
+      related_timeline: [2]
+    }
   ],
   scenes: [
     {
@@ -65,6 +89,7 @@ const script: ScriptYaml = {
         atmosphere: "悬疑"
       },
       characters: ["char_001"],
+      conflict_ids: ["conflict_001"],
       purpose: "引出线索",
       beats: ["收到短信"],
       script: [{ type: "action", content: "雨水滑落" }]
@@ -79,6 +104,7 @@ const script: ScriptYaml = {
         atmosphere: "紧张"
       },
       characters: ["char_001"],
+      conflict_ids: ["conflict_002"],
       purpose: "推进调查",
       beats: ["找到照片"],
       script: [{ type: "action", content: "照片掉落" }]
@@ -93,9 +119,13 @@ describe("buildChapterReviewItems", () => {
     expect(items).toHaveLength(2);
     expect(items[0].chapter.id).toBe("ch_001");
     expect(items[0].yaml).toContain("scene_001");
+    expect(items[0].yaml).toContain("conflict_001");
+    expect(items[0].yaml).not.toContain("conflict_002");
     expect(items[0].yaml).not.toContain("scene_002");
     expect(items[1].chapter.id).toBe("ch_002");
     expect(items[1].yaml).toContain("scene_002");
+    expect(items[1].yaml).toContain("conflict_002");
+    expect(items[1].yaml).not.toContain("conflict_001");
     expect(items[1].yaml).not.toContain("scene_001");
   });
 });
