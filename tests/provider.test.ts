@@ -6,7 +6,7 @@ describe("hasRemoteConfig", () => {
     expect(
       hasRemoteConfig({
         vendor: "mock",
-        apiKey: "stale-key",
+        credential: "stale-key",
         model: "stale-model"
       })
     ).toBe(false);

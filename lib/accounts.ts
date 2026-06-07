@@ -13,7 +13,7 @@ export type AccountUsageRecord = {
 export type Account = {
   id: string;
   username: string;
-  password: string;
+  passphrase: string;
   role: AccountRole;
   status: AccountStatus;
   createdAt: string;
@@ -26,7 +26,7 @@ export type Account = {
 
 export type AccountDraft = {
   username: string;
-  password: string;
+  passphrase: string;
   role: AccountRole;
   status: AccountStatus;
 };
@@ -35,7 +35,7 @@ export const DEFAULT_ACCOUNTS: Account[] = [
   {
     id: "admin",
     username: "admin",
-    password: "admin123",
+    passphrase: "admin123",
     role: "admin",
     status: "active",
     createdAt: "2026-06-06T00:00:00.000Z",
@@ -48,7 +48,7 @@ export const DEFAULT_ACCOUNTS: Account[] = [
   {
     id: "user",
     username: "user",
-    password: "user123",
+    passphrase: "user123",
     role: "user",
     status: "active",
     createdAt: "2026-06-06T00:00:00.000Z",
@@ -91,7 +91,7 @@ export function parseAccounts(rawValue: string | null) {
       return (
         typeof item?.id === "string" &&
         typeof item.username === "string" &&
-        typeof item.password === "string" &&
+        typeof item.passphrase === "string" &&
         (item.role === "admin" || item.role === "user") &&
         (item.status === "active" || item.status === "disabled") &&
         typeof item.createdAt === "string"
@@ -108,12 +108,12 @@ export function serializeAccounts(accounts: Account[]) {
   return JSON.stringify(accounts);
 }
 
-export function authenticateAccount(accounts: Account[], username: string, password: string) {
+export function authenticateAccount(accounts: Account[], username: string, passphrase: string) {
   const normalizedUsername = username.trim();
   return (
     accounts.find(
       (account) =>
-        account.username === normalizedUsername && account.password === password && account.status === "active"
+        account.username === normalizedUsername && account.passphrase === passphrase && account.status === "active"
     ) ?? null
   );
 }
@@ -124,7 +124,7 @@ export function canManageUsers(account: Account | null) {
 
 export function createAccount(accounts: Account[], draft: AccountDraft, createdAt = new Date().toISOString()) {
   const username = draft.username.trim();
-  if (!username || !draft.password.trim()) return accounts;
+  if (!username || !draft.passphrase.trim()) return accounts;
   if (accounts.some((account) => account.username === username)) return accounts;
 
   return [
@@ -132,7 +132,7 @@ export function createAccount(accounts: Account[], draft: AccountDraft, createdA
     {
       id: `${createdAt}-${username}`,
       username,
-      password: draft.password,
+      passphrase: draft.passphrase,
       role: draft.role,
       status: draft.status,
       createdAt,
@@ -147,7 +147,7 @@ export function createAccount(accounts: Account[], draft: AccountDraft, createdA
 
 export function updateAccount(accounts: Account[], accountId: string, draft: AccountDraft) {
   const username = draft.username.trim();
-  if (!username || !draft.password.trim()) return accounts;
+  if (!username || !draft.passphrase.trim()) return accounts;
   if (accounts.some((account) => account.id !== accountId && account.username === username)) return accounts;
 
   return accounts.map((account) => {
@@ -155,7 +155,7 @@ export function updateAccount(accounts: Account[], accountId: string, draft: Acc
     return {
       ...account,
       username,
-      password: draft.password,
+      passphrase: draft.passphrase,
       role: draft.role,
       status: draft.status
     };

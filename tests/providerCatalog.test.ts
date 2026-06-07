@@ -7,7 +7,7 @@ const providers: ManagedProviderConfig[] = [
     vendor: "openai",
     label: "OpenAI",
     baseUrl: "https://internal.example.com/openai/v1",
-    apiKey: "admin-key",
+    credential: "admin-key",
     models: ["gpt-4o-mini"],
     enabled: true
   },
@@ -15,7 +15,7 @@ const providers: ManagedProviderConfig[] = [
     vendor: "deepseek",
     label: "DeepSeek",
     baseUrl: "https://internal.example.com/deepseek/v1",
-    apiKey: "disabled-key",
+    credential: "disabled-key",
     models: ["deepseek-chat"],
     enabled: false
   }
@@ -26,7 +26,7 @@ describe("resolveProviderConfig", () => {
     expect(resolveProviderConfig({ vendor: "openai", model: "gpt-4o-mini" }, providers)).toEqual({
       vendor: "openai",
       baseUrl: "https://internal.example.com/openai/v1",
-      apiKey: "admin-key",
+      credential: "admin-key",
       model: "gpt-4o-mini"
     });
   });

@@ -78,7 +78,7 @@ const MANAGED_PROVIDERS_STORAGE_KEY = "scriptforge.managedProviders";
 
 const emptyAccountDraft: AccountDraft = {
   username: "",
-  password: "",
+  passphrase: "",
   role: "user",
   status: "active"
 };
@@ -205,7 +205,7 @@ function ProviderModule({
     provider,
     managedProviders
   );
-  const readyForRemote = Boolean(selectedProvider?.apiKey && selectedProvider.baseUrl && selectedModel);
+  const readyForRemote = Boolean(selectedProvider?.credential && selectedProvider.baseUrl && selectedModel);
   const selectedProviderCost = getProviderUsageCost({ vendor: selectedVendor });
 
   function changeVendor(vendor: ProviderVendor) {
@@ -329,8 +329,8 @@ function AdminProviderModule({
                 <input
                   type="password"
                   placeholder="由管理员配置"
-                  value={managedProvider.apiKey}
-                  onChange={(event) => updateProvider(index, { apiKey: event.target.value })}
+                  value={managedProvider.credential}
+                  onChange={(event) => updateProvider(index, { credential: event.target.value })}
                 />
               </label>
               <label>
@@ -694,7 +694,7 @@ export default function Home() {
     setEditingAccountId(account.id);
     setAccountDraft({
       username: account.username,
-      password: account.password,
+      passphrase: account.passphrase,
       role: account.role,
       status: account.status
     });
@@ -858,7 +858,7 @@ export default function Home() {
       setIsValid(payload.validation.valid);
       setResultSaved(false);
       setPendingResultUsageCost(
-        resolvedProvider.apiKey && resolvedProvider.model ? getProviderUsageCost(resolvedProvider) : 0
+        resolvedProvider.credential && resolvedProvider.model ? getProviderUsageCost(resolvedProvider) : 0
       );
       setWorkflowStep("result");
       setStatus(payload.validation.valid ? "生成完成，YAML 已通过校验" : "生成完成，但需要修复校验问题");
@@ -1437,8 +1437,8 @@ export default function Home() {
                 <label>
                   密码
                   <input
-                    value={accountDraft.password}
-                    onChange={(event) => setAccountDraft((current) => ({ ...current, password: event.target.value }))}
+                    value={accountDraft.passphrase}
+                    onChange={(event) => setAccountDraft((current) => ({ ...current, passphrase: event.target.value }))}
                   />
                 </label>
                 <div className="accountFormGrid">
