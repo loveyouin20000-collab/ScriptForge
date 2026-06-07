@@ -4,6 +4,9 @@ ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小�
 
 当前版本重点不是“一次性生成一段漂亮文本”，而是把小说改编做成可解释、可校验、可编辑的工程化流程。
 
+# 演示视频
+https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3763ff9b
+
 ## 当前代码结果
 
 已完成一个 Next.js 单体 MVP，包含前端工作台、后端 API 路由、AI provider 抽象、mock 兜底流水线、YAML 校验与导出能力。
