@@ -118,31 +118,11 @@ https://www.bilibili.com/video/BV1bYE46gETf/?vd_source=5fc9cef933961d88ead5dc6d3
 
 ## 会员服务设计
 
-会员服务页面采用按生成次数收费的商业模式。
-
-免费版：
-
-- ¥0
-- 本地 mock 流水线不限次
-- 真实 LLM 赠送 10 次生成额度
-- 最多 3 章小说试改
-- YAML 校验、复制和下载
-
-Pro 版：
-
-- ¥79 起
-- 200 次生成
-- 支持 OpenAI、DeepSeek、通义等模型
-- 更长章节处理与优先队列
-- 支持单场景重生成和高级导出
-
-次数包：
-
-| 套餐 | 价格 | 次数 | 适用场景 |
-| --- | --- | --- | --- |
-| 轻量包 | ¥29 | 50 次 | 短篇试改和小规模验证 |
-| 创作包 | ¥99 | 200 次 | 连续章节和多版本改写 |
-| 工作室包 | ¥399 | 1000 次 | 团队项目和批量剧本生产 |
+| 方案 | 价格 | 生成额度 | 适用场景 | 详情 |
+| --- | --- | --- | --- | --- |
+| 免费版 | ¥0 | 真实 LLM 赠送 10 次，本地 mock 不限次 | 产品试用、短篇验证 | [查看详情](docs/membership-service-design.md) |
+| Pro 版 | ¥79 起 | 200 次 | 连续章节改编、真实模型验证 | [查看详情](docs/membership-service-design.md) |
+| 次数包 | ¥29 起 | 50 / 200 / 1000 次 | 按需补充生成额度 | [查看详情](docs/membership-service-design.md) |
 
 ## 技术栈
 
@@ -166,166 +146,15 @@ Pro 版：
 - `POST /api/yaml/validate`：校验 YAML 结构和引用。
 - `POST /api/yaml/fix`：修复基础 YAML 结构问题。
 
-## 本地运行
+## 本地运行与发布
 
-### 新窗口复现前置检查
+本地安装、开发服务重启、验证命令和 tag 发布流程见 [本地运行与发布](docs/local-run-and-release.md)。
 
-如果你在新的 Codex 窗口或新的终端里看到 `README.md` 只有 `# 我的项目`，说明当前目录或分支不是本次实现所在的工作区。
-
-本次实现所在分支：
-
-```text
-codex/ai-adaptation-pipeline-mvp
-```
-
-本次实现所在 worktree 路径：
-
-```text
-C:\Users\35078\.codex\worktrees\46d4\ScriptForge
-```
-
-在新窗口中优先进入这个目录：
-
-```powershell
-cd C:\Users\35078\.codex\worktrees\46d4\ScriptForge
-```
-
-确认当前仓库根目录和分支：
-
-```powershell
-git rev-parse --show-toplevel
-git branch --show-current
-```
-
-期望输出分别包含：
-
-```text
-C:/Users/35078/.codex/worktrees/46d4/ScriptForge
-codex/ai-adaptation-pipeline-mvp
-```
-
-如果你是在主仓库目录或全新克隆里复现，请先拉取远端分支：
-
-```powershell
-git fetch origin
-git switch codex/ai-adaptation-pipeline-mvp
-git pull --ff-only origin codex/ai-adaptation-pipeline-mvp
-```
-
-如果 `git switch` 提示该分支已经被其他 worktree 使用，就直接进入上面的 worktree 路径运行服务，不要在主仓库目录重复切换同一个分支。
-
-确认 README 是否已经是新版本：
-
-```powershell
-Get-Content README.md -TotalCount 5
-```
-
-第一行应为：
-
-```text
-# ScriptForge
-```
-
-并且后面应包含“当前代码结果”“重启本地服务”等章节。
+常用命令：
 
 ```bash
 npm.cmd install
 npm.cmd run dev
-```
-
-打开：
-
-```text
-http://localhost:3000
-```
-
-## 重启本地服务
-
-如果 `http://localhost:3000` 出现 500、页面打不开，或你在新窗口中需要重新启动服务，可以按下面步骤操作。
-
-### 1. 查看 3000 端口是否仍被占用
-
-```powershell
-netstat -ano | Select-String ':3000'
-```
-
-如果看到 `LISTENING`，记录最后一列 PID，例如：
-
-```text
-TCP  127.0.0.1:3000  0.0.0.0:0  LISTENING  57400
-```
-
-### 2. 停止旧服务
-
-把上一步看到的 PID 替换到命令里：
-
-```powershell
-Stop-Process -Id 57400 -Force
-```
-
-如果有多个同一时间启动的 Node/Next 进程，也可以一起停止：
-
-```powershell
-Stop-Process -Id 57400,102576 -Force
-```
-
-停止后再次确认没有 `LISTENING`：
-
-```powershell
-netstat -ano | Select-String ':3000'
-```
-
-只剩 `TIME_WAIT` 是正常的，表示端口连接正在释放；没有 `LISTENING` 就说明服务已停止。
-
-### 3. 可选：清理 Next 构建缓存
-
-如果之前遇到过 `500 Internal Server Error` 或构建缓存异常，可以清理 `.next`：
-
-```powershell
-$target = Resolve-Path '.next' -ErrorAction SilentlyContinue
-if ($target -and $target.Path.StartsWith((Resolve-Path '.').Path)) {
-  Remove-Item -LiteralPath $target.Path -Recurse -Force
-}
-```
-
-### 4. 重新启动服务
-
-推荐直接运行：
-
-```bash
-npm.cmd run dev
-```
-
-如果需要后台启动，可以使用 Node 直接启动 Next：
-
-```powershell
-Start-Process -FilePath 'C:\Program Files\nodejs\node.exe' `
-  -ArgumentList @('node_modules\next\dist\bin\next','dev','--hostname','127.0.0.1','--port','3000') `
-  -WorkingDirectory 'C:\Users\35078\.codex\worktrees\46d4\ScriptForge' `
-  -WindowStyle Hidden
-```
-
-### 5. 验证服务是否恢复
-
-```powershell
-try {
-  (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000).StatusCode
-} catch {
-  $_.Exception.Message
-}
-```
-
-返回 `200` 表示服务已恢复。然后打开：
-
-```text
-http://localhost:3000
-```
-
-如果 in-app browser 仍显示旧错误页，请刷新当前标签页；服务端已经返回 `200` 时，通常只是浏览器保留了旧页面状态。
-
-## 验证命令
-
-```bash
 npm.cmd test
 npm.cmd run build
 ```
@@ -374,55 +203,7 @@ npm.cmd run build
 | `main` | 生产稳定版，只保留最终可发布、可演示的版本。 |
 | `develop` | 开发集成版，所有新功能和修复先汇总到这里。 |
 
-### 功能开发分支
-
-| 分支 | 用途 |
-| --- | --- |
-| `feature/ai-novel-parser` | AI 小说文本解析，包括人物、对话、场景提取。 |
-| `feature/yaml-script-generator` | YAML 格式剧本自动生成。 |
-| `feature/schema-definition` | 剧本 YAML Schema 定义与校验。 |
-| `feature/chapter-batch-process` | 3 章以上小说批量处理。 |
-| `feature/ui-editor` | 剧本可视化编辑界面。 |
-| `feature/cli-tool` | 命令行工具入口。 |
-
-### 修复分支
-
-| 分支 | 用途 |
-| --- | --- |
-| `fix/ai-extract-error` | 修复 AI 提取内容错误。 |
-| `fix/yaml-format-broken` | 修复 YAML 格式异常。 |
-| `fix/character-recognition-bug` | 修复人物名称识别问题。 |
-
-### 文档分支
-
-| 分支 | 用途 |
-| --- | --- |
-| `docs/schema-spec-doc` | Schema 规范文档。 |
-| `docs/user-guide` | 使用说明文档。 |
-| `docs/api-description` | 接口和模块说明文档。 |
-
-### 重构优化分支
-
-| 分支 | 用途 |
-| --- | --- |
-| `refactor/core-module-cleanup` | 核心模块重构。 |
-| `refactor/ai-prompt-optimize` | AI 提示词优化，不改动核心功能。 |
-
-### 紧急修复分支
-
-| 分支 | 用途 |
-| --- | --- |
-| `hotfix/crash-when-upload-file` | 上传文件崩溃紧急修复。 |
-| `hotfix/yaml-output-empty` | YAML 输出为空紧急修复。 |
-
-## 分支使用规则
-
-- 新功能从 `develop` 拉取 `feature/*` 分支开发，完成后合并回 `develop`。
-- 普通 Bug 从 `develop` 拉取 `fix/*` 分支修复，完成后合并回 `develop`。
-- 文档内容从 `develop` 拉取 `docs/*` 分支维护，完成后合并回 `develop`。
-- 重构优化从 `develop` 拉取 `refactor/*` 分支处理，完成后合并回 `develop`。
-- 紧急线上问题从 `main` 拉取 `hotfix/*` 分支修复，完成后同时合并回 `main` 和 `develop`。
-- `main` 和 `develop` 不直接提交代码，只通过合并进入。
+已知 Windows hook 兼容问题、分支规划和分支使用规则见 [环境与规划](docs/environment-and-branches.md)。
 
 ## Recent Product Updates
 
@@ -537,6 +318,39 @@ When fallback happens, the workflow status tells the user that the remote parser
 
 ### LLM Provider And Membership
 
+The result workflow now includes the author-facing editing and video chain inside the same stepper instead of a separate module.
+
+Implemented capabilities:
+
+- Card-style script editing for metadata, scenes, and script lines.
+- Deterministic storyboard generation from `scenes.script`.
+- Video prompt generation from storyboard, scene, character, and location context.
+- Mock video provider with task submission, status refresh, result URL, and thumbnail URL fields.
+- Feedback write-back for scene, shot, prompt, and video task scopes.
+- Structured YAML write-back for storyboard, prompts, tasks, and revision logs.
+
+### API Key Management
+
+Admin-managed provider API keys are intentionally local prototype data:
+
+- API keys are stored in browser `localStorage`.
+- API keys are not written to source files.
+- API keys are not committed to GitHub.
+- Saved keys are locked in the UI; deleting a key is required before adding a replacement.
+- The repository ignores `.env*` files, except `.env.example`.
+
+### Remote Failure Fallback
+
+The chapter parsing step now reports which parser was used:
+
+- `remote`: remote OpenAI-compatible model succeeded.
+- `local`: no remote provider was configured, so local chapter rules were used.
+- `local_fallback`: remote parsing failed or returned invalid structure, so local rules were used.
+
+When fallback happens, the workflow status tells the user that the remote parser failed and local rules were used.
+
+### LLM Provider And Membership
+
 The LLM provider configuration has been moved into the membership/service area.
 
 The app currently supports:
@@ -545,25 +359,4 @@ The app currently supports:
 - OpenAI-compatible remote provider calls when base URL, model, and API key are all configured.
 - Remaining count display in the workflow entry area and user management table.
 
-### Local Service Notes
-
-If `http://127.0.0.1:3000` or `http://localhost:3000` returns `500` after running `npm.cmd run build`, the old Next.js dev process may be holding a stale `.next` cache.
-
-Recommended recovery:
-
-```powershell
-netstat -ano | Select-String ':3000'
-Stop-Process -Id <PID> -Force
-```
-
-Then restart:
-
-```powershell
-npm run dev -- --hostname 127.0.0.1 --port 3000
-```
-
-Open:
-
-```text
-http://localhost:3000/
-```
+More membership and quota details are documented in [会员服务设计](docs/membership-service-design.md).

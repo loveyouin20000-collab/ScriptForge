@@ -448,6 +448,27 @@ h3 {
   border-top: 1px solid var(--line);
 }
 
+.workflowActions .abandonWorkflowButton {
+  margin-right: auto;
+}
+
+.workflowCompletionChoices {
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.workflowCompletionChoices strong {
+  display: block;
+  color: var(--ink);
+}
+
+.workflowCompletionChoices p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
 .formColumn,
 .editorColumn,
 .summaryPane,
@@ -961,12 +982,18 @@ dd {
 }
 
 .dangerButton {
-  color: #9f3a30;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid #d94b3f;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #c9362c;
+  font-weight: 800;
 }
 
 .dangerButton:hover {
-  border-color: #dfc4bb;
-  background: #fff7f5;
+  border-color: #b72d24;
+  background: #a92720;
 }
 
 .emptyState {

@@ -128,6 +128,22 @@ describe("video chain", () => {
     expect(succeeded?.result_url).toContain("mock-video");
   });
 
+  it("keeps mock video tasks queryable across provider instances", async () => {
+    const submitProvider = new MockVideoProvider();
+    const queryProvider = new MockVideoProvider();
+    const submitted = await submitProvider.submit({
+      prompt_id: "prompt_shot_scene_001_001",
+      prompt: "雨夜咖啡馆，中景，慢慢推进",
+      duration_seconds: 4,
+      aspect_ratio: "16:9"
+    });
+
+    const running = await queryProvider.getTask(submitted.id);
+
+    expect(running?.id).toBe(submitted.id);
+    expect(running?.status).toBe("running");
+  });
+
   it("applies feedback only to the selected shot and records a revision log", () => {
     const script = generateVideoPrompts(generateStoryboard(validScript()));
     const result = applyRevision(script, {
