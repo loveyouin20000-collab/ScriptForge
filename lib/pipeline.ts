@@ -19,7 +19,7 @@ type ChapterAnalysis = Required<
   Pick<Chapter, "summary" | "main_characters" | "locations" | "key_events" | "emotional_tone">
 >;
 
-type GlobalStory = {
+export type GlobalStory = {
   characters: Character[];
   locations: Location[];
   timeline: TimelineItem[];
@@ -45,6 +45,8 @@ type SceneNormalizationRefs = {
   locationIds: string[];
 };
 
+type StoryConflictType = StoryStructure["conflicts"][number]["type"];
+
 function sentenceFrom(text: string, max = 80) {
   return text.replace(/\s+/g, " ").trim().slice(0, max) || "本章围绕主要人物的选择与冲突展开。";
 }
@@ -58,13 +60,23 @@ function idFrom(prefix: string, index: number) {
 }
 
 function pickNames(text: string, fallbackPrefix: string) {
-  const matches = text.match(/[\u4e00-\u9fa5]{2,4}/g) ?? [];
+  const actionNameMatches = Array.from(
+    text.matchAll(/([\u4e00-\u9fa5]{2,3})(?=在|和|把|却|提醒|收到|出现|找到|决定|独自|看见|拿给|沉默|发现|追查|重启|进入|离开)/g)
+  ).map((match) => match[1]);
+  const matches = actionNameMatches.length ? actionNameMatches : text.match(/[\u4e00-\u9fa5]{2,4}/g) ?? [];
   const blocked = new Set([
     "第一章",
     "第二章",
     "第三章",
     "第四章",
     "第五章",
+    "咖啡馆",
+    "老城区",
+    "短信",
+    "旧案",
+    "证人",
+    "线索",
+    "真相",
     "小说",
     "本章",
     "时候",
@@ -78,6 +90,31 @@ function pickNames(text: string, fallbackPrefix: string) {
     : [`${fallbackPrefix}主角`, `${fallbackPrefix}对手`];
 }
 
+function mockTurningEvent(chapter: Chapter, names: string[]) {
+  const leadName = names[0] ?? "主角";
+  const allyName = names.find((name) => name !== leadName) ?? leadName;
+  const chapterText = `${chapter.title} ${chapter.text}`;
+
+  if (/证人|消失/.test(chapterText)) return "关键证人消失，调查阻力浮出水面";
+  if (/旧案|重启/.test(chapterText)) return `${leadName}与${allyName}决定重启旧案调查`;
+  if (/短信|陌生/.test(chapterText)) return `${leadName}收到神秘短信，旧案线索被重新点燃`;
+  if (/真相|线索/.test(chapterText)) return `${leadName}抓住关键线索，距离真相更近一步`;
+  return `${chapter.title}结尾出现新的行动压力`;
+}
+
+function inferConflictType(text: string): StoryConflictType {
+  if (/内心|恐惧|犹豫|愧疚|选择/.test(text)) return "internal";
+  if (/父亲|旧爱|朋友|关系|信任|背叛/.test(text)) return "relationship";
+  if (/短信|旧案|证人|真相|线索|失踪|神秘|调查/.test(text)) return "mystery";
+  if (/组织|家族|公司|制度|舆论/.test(text)) return "social";
+  return "external";
+}
+
+function normalizeStoryConflictType(type: string): StoryConflictType {
+  if (type === "internal" || type === "relationship" || type === "social" || type === "mystery") return type;
+  return "external";
+}
+
 function mockChapterAnalysis(chapter: Chapter, index: number): ChapterAnalysis {
   const names = pickNames(chapter.text, `第${index + 1}章`);
   const locationKeywords = ["咖啡馆", "老城区", "车站", "公寓", "雨夜", "医院", "学校"];
@@ -89,7 +126,7 @@ function mockChapterAnalysis(chapter: Chapter, index: number): ChapterAnalysis {
     key_events: [
       `${names[0]}面对新的线索`,
       `${names[1] ?? names[0]}推动冲突升级`,
-      "章节结尾留下下一步悬念"
+      mockTurningEvent(chapter, names)
     ],
     emotional_tone: chapter.text.includes("雨") ? "悬疑、压抑" : "紧张、克制"
   };
@@ -137,10 +174,11 @@ function buildMockGlobalStory(chapters: Chapter[]): GlobalStory {
     const relatedTimeline = timeline.filter((item) => item.chapter_id === chapter.id).map((item) => item.order);
     const title = chapter.key_events?.[1] ?? chapter.key_events?.[0] ?? `${chapter.title}核心冲突`;
     const parties = characters.slice(0, Math.min(2, characters.length)).map((character) => character.id);
+    const conflictType = inferConflictType(`${chapter.title} ${chapter.text} ${title}`);
     return {
       id: idFrom("conflict", index),
       title,
-      type: "external",
+      type: conflictType,
       description: `${chapter.title}中，人物围绕“${title}”形成推动剧情前进的冲突。`,
       parties: parties.length ? parties : ["char_001"],
       stakes: "如果冲突无法解决，关键线索和人物关系都会继续失控。",
@@ -210,7 +248,7 @@ function buildMockStoryStructure(chapters: Chapter[], global: GlobalStory): Stor
     conflicts: global.conflicts.length
       ? global.conflicts.map((conflict) => ({
           id: conflict.id,
-          type: conflict.type === "internal" ? "internal" : "external",
+          type: normalizeStoryConflictType(conflict.type),
           description: conflict.description,
           characters: conflict.parties.length ? conflict.parties : primaryCharacters,
           source_chapters: conflict.source_chapters.length ? conflict.source_chapters : chapterIds,
