@@ -129,6 +129,18 @@ timeline:
   - order: 1
     chapter_id: ch_001
     event: 林晚收到神秘短信
+    conflict_ids: [conflict_001]
+    impact: 引出主线冲突
+conflicts:
+  - id: conflict_001
+    title: 神秘短信引发的对峙
+    type: external
+    description: 林晚必须判断神秘短信是否与父亲失踪有关。
+    parties: [char_001]
+    stakes: 判断失误会让旧案线索再次断裂。
+    status: active
+    source_chapters: [ch_001]
+    related_timeline: [1]
 scenes:
   - id: scene_001
     title: 雨夜重逢
@@ -139,6 +151,7 @@ scenes:
       time: 夜晚
       atmosphere: 悬疑、压抑
     characters: [char_001]
+    conflict_ids: [conflict_001]
     purpose: 引出主线悬念
     beats:
       - 林晚独自等待
@@ -1562,8 +1575,9 @@ export default function Home() {
                   ["source", "保留章节数量、章节 id、标题和摘要，让剧本与原小说保持映射。"],
                   ["characters", "建立人物表，场景只引用 id，避免称呼、关系和性格漂移。"],
                   ["locations", "建立地点表，统一场景描述，后续可扩展分镜、拍摄计划和预算。"],
-                  ["timeline", "按事件顺序记录剧情推进，帮助检查改编后的时间线。"],
-                  ["scenes", "每个场景包含来源、时间地点、人物、目的、节拍、动作/对白和改编策略。"]
+                  ["timeline", "按事件顺序记录剧情推进，并可通过 conflict id 关联冲突。"],
+                  ["conflicts", "记录冲突标题、参与人物、利害关系、来源章节和相关时间线。"],
+                  ["scenes", "每个场景包含来源、时间地点、人物、冲突引用、目的、节拍、动作/对白和改编策略。"]
                 ].map(([name, description]) => (
                   <article key={name}>
                     <h3>{name}</h3>

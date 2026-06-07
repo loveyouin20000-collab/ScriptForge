@@ -33,6 +33,21 @@ export type TimelineItem = {
   chapter_id: string;
   event: string;
   time?: string;
+  scene_id?: string;
+  conflict_ids?: string[];
+  impact?: string;
+};
+
+export type Conflict = {
+  id: string;
+  title: string;
+  type: string;
+  description: string;
+  parties: string[];
+  stakes: string;
+  status: string;
+  source_chapters: string[];
+  related_timeline: number[];
 };
 
 export type ScriptLine =
@@ -59,6 +74,7 @@ export type Scene = {
     atmosphere: string;
   };
   characters: string[];
+  conflict_ids: string[];
   purpose: string;
   beats: string[];
   script: ScriptLine[];
@@ -82,6 +98,7 @@ export type ScriptYaml = {
   characters: Character[];
   locations: Location[];
   timeline: TimelineItem[];
+  conflicts: Conflict[];
   scenes: Scene[];
 };
 

@@ -35,6 +35,70 @@ function repairObject(input: Partial<ScriptYaml>): ScriptYaml {
   const firstCharacter = characters[0]?.id || "char_001";
   const firstLocation = locations[0]?.id || "loc_001";
   const firstChapter = chapters[0]?.id || "ch_001";
+  const sceneIds = new Set(
+    ensureArray(input.scenes).map((scene, index) => scene.id || `scene_${String(index + 1).padStart(3, "0")}`)
+  );
+  const timeline = ensureArray(input.timeline).map((item, index) => ({
+    order: item.order || index + 1,
+    chapter_id: chapters.some((chapter) => chapter.id === item.chapter_id) ? item.chapter_id : firstChapter,
+    event: item.event || "待补充事件",
+    time: item.time || "待补充时间",
+    scene_id: item.scene_id && sceneIds.has(item.scene_id) ? item.scene_id : undefined,
+    conflict_ids: ensureArray(item.conflict_ids),
+    impact: item.impact
+  }));
+  const repairedTimeline = timeline.length
+    ? timeline
+    : [
+        {
+          order: 1,
+          chapter_id: firstChapter,
+          event: "待补充事件",
+          time: "待补充时间",
+          conflict_ids: [] as string[]
+        }
+      ];
+  const timelineOrders = new Set(repairedTimeline.map((item) => item.order));
+  const firstTimelineOrder = repairedTimeline[0]?.order ?? 1;
+  const conflicts = ensureArray(input.conflicts).map((conflict, index) => {
+    const sourceChapters = ensureArray(conflict.source_chapters).filter((id) =>
+      chapters.some((chapter) => chapter.id === id)
+    );
+    const relatedTimeline = ensureArray(conflict.related_timeline).filter((order) => timelineOrders.has(order));
+    const parties = ensureArray(conflict.parties).filter((id) => characters.some((character) => character.id === id));
+    return {
+      id: conflict.id || `conflict_${String(index + 1).padStart(3, "0")}`,
+      title: conflict.title || "待补充冲突",
+      type: conflict.type || "unknown",
+      description: conflict.description || "待补充冲突描述",
+      parties: parties.length ? parties : [firstCharacter],
+      stakes: conflict.stakes || "待补充利害关系",
+      status: conflict.status || "active",
+      source_chapters: sourceChapters.length ? sourceChapters : [firstChapter],
+      related_timeline: relatedTimeline.length ? relatedTimeline : [firstTimelineOrder]
+    };
+  });
+  const repairedConflicts = conflicts.length
+    ? conflicts
+    : [
+        {
+          id: "conflict_001",
+          title: "待补充冲突",
+          type: "unknown",
+          description: "待补充冲突描述",
+          parties: [firstCharacter],
+          stakes: "待补充利害关系",
+          status: "active",
+          source_chapters: [firstChapter],
+          related_timeline: [firstTimelineOrder]
+        }
+      ];
+  const conflictIds = new Set(repairedConflicts.map((conflict) => conflict.id));
+  const firstConflict = repairedConflicts[0]?.id || "conflict_001";
+  const cleanConflictIds = (ids: string[] | undefined) => {
+    const cleaned = ensureArray(ids).filter((id) => conflictIds.has(id));
+    return cleaned.length ? cleaned : [firstConflict];
+  };
 
   const repaired: ScriptYaml = {
     metadata: {
@@ -78,12 +142,11 @@ function repairObject(input: Partial<ScriptYaml>): ScriptYaml {
             description: "待补充地点描述"
           }
         ],
-    timeline: ensureArray(input.timeline).map((item, index) => ({
-      order: item.order || index + 1,
-      chapter_id: chapters.some((chapter) => chapter.id === item.chapter_id) ? item.chapter_id : firstChapter,
-      event: item.event || "待补充事件",
-      time: item.time || "待补充时间"
+    timeline: repairedTimeline.map((item) => ({
+      ...item,
+      conflict_ids: cleanConflictIds(item.conflict_ids)
     })),
+    conflicts: repairedConflicts,
     scenes: ensureArray(input.scenes).map((scene, index) => ({
       id: scene.id || `scene_${String(index + 1).padStart(3, "0")}`,
       title: scene.title || `场景${index + 1}`,
@@ -99,6 +162,7 @@ function repairObject(input: Partial<ScriptYaml>): ScriptYaml {
         atmosphere: scene.setting?.atmosphere || "待补充氛围"
       },
       characters: ensureArray(scene.characters).filter((id) => characters.some((character) => character.id === id)),
+      conflict_ids: cleanConflictIds(scene.conflict_ids),
       purpose: scene.purpose || "待补充场景功能",
       beats: ensureArray(scene.beats).length ? scene.beats : ["待补充节拍"],
       script: ensureArray(scene.script).map((line) => {
@@ -139,17 +203,6 @@ function repairObject(input: Partial<ScriptYaml>): ScriptYaml {
           }
         ]
   }));
-
-  if (!repaired.timeline.length) {
-    repaired.timeline = [
-      {
-        order: 1,
-        chapter_id: firstChapter,
-        event: "待补充事件",
-        time: "待补充时间"
-      }
-    ];
-  }
 
   return repaired;
 }

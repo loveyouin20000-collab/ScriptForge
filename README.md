@@ -69,8 +69,9 @@ ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小�
 - `source`：原小说章节数量、章节 id、标题和摘要。
 - `characters`：人物表，场景中通过 character id 引用。
 - `locations`：地点表，场景中通过 location id 引用。
-- `timeline`：按顺序记录剧情事件。
-- `scenes`：结构化剧本场景，包含来源章节、时间地点、人物、目的、节拍、动作、对白和改编策略。
+- `timeline`：按顺序记录剧情事件，可通过 conflict id 关联冲突。
+- `conflicts`：一等冲突模型，记录冲突标题、类型、参与人物、利害关系、来源章节和相关时间线。
+- `scenes`：结构化剧本场景，包含来源章节、时间地点、人物、冲突引用、目的、节拍、动作、对白和改编策略。
 
 校验内容包括：
 
@@ -79,6 +80,10 @@ ScriptForge 是一个 AI 辅助小说改编流水线工具。它把多章节小�
 - `scene.characters` 是否引用已存在人物。
 - `dialogue.character` 是否引用已存在人物。
 - `timeline.chapter_id` 和 `scene.source.chapters` 是否引用已存在章节。
+- `conflict.parties` 是否引用已存在人物。
+- `conflict.source_chapters` 是否引用已存在章节。
+- `conflict.related_timeline` 是否引用已存在时间线顺序。
+- `timeline.conflict_ids` 和 `scene.conflict_ids` 是否引用已存在冲突。
 
 ## 会员服务设计
 
